@@ -57,7 +57,10 @@ diff -u <v1.0.8 原文件> <ada-ternary changed-files 同路径文件>          
 ### 4.1 编译
 
 - **C++**：对打过补丁的树逐翻译单元做 `g++ -std=c++20 -DNINFER_SM89=1 -fsyntax-only`，覆盖 `src/` 与 `apps/` 下全部 `.cpp`。
-  失败项全部是缺第三方系统头（curl / httplib / ffmpeg / xgrammar），与本补丁无关。
+  失败 6 项，补齐 CMake 等效 include 路径后复测，只有 2 项是真缺系统包（`src/media/decode/decode.cpp` 缺 `libavcodec/avcodec.h`，
+  `src/product/media_acquire/acquire.cpp` 缺 `curl/curl.h`）；`apps/serve/main.cpp` 与 `src/serve/responses_http.cpp` 用内置
+  `third_party/cpp-httplib` 即可通过（原失败是探针漏传 `-I`），`src/serve/http_server.cpp` 缺的是 CMake 生成的 `ui.h`，
+  `frontend.cpp` 缺的 `xgrammar` 由 configure 阶段 FetchContent 拉取。均与本补丁无关，详见 `docs/依赖安装-RockyLinux10.md`。
 - **CUDA**：`nvcc 13.3 / sm_89` 编译 3 个三元翻译单元，全部通过；唯一告警是上游既有的
   `launch_pq2_gemv declared but never referenced`（本包注释里已说明该函数为何暂时不接线）。
 
@@ -108,7 +111,8 @@ PTQ1_0_G128 = 278,118,400 B、PQ2_0_G128 = 337,715,200 B，与引擎注释里写
 - **端到端数值（PPL / 困惑度 / 接受率）没有复跑**：需要 Ternary Bonsai 2 27B 权重（约 7 GB GGUF）
   与一份 groupwise-int 模板制品，本环境不具备，且本仓按约定不分发权重。原先的数字
 （PPL 6.445、MTP K=2 96.7–130.8 t/s）来自 Ada / Windows 线，**不能直接外推到本线**。
-- **完整 CMake 构建未执行**：本机缺 `cmake`、`libcurl`、`ffmpeg` 开发包与 `xgrammar`。
+- **完整 CMake 构建未执行**：本机缺 `cmake`、`libcurl` 开发包与 FFmpeg 开发包；`xgrammar` 由 configure 阶段联网拉取，
+  不是缺包。依赖补齐命令与实测校验见 `docs/依赖安装-RockyLinux10.md`，装完后需重跑 configure 才能给出完整构建结论。
   因此"逐翻译单元编译通过"是本次能达到的最强编译证据。
 - **MMA 路径只做了编译验证**，没有在真机上与 SIMT 路径做数值对照（需要真实三元权重）。
   对照方法已备好：`NINFER_TERNARY_MMA=0/1` 跑同一窗口比数值。

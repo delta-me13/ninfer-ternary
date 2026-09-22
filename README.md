@@ -31,7 +31,11 @@ uv run nifer-ternary apply  --repo /path/to/ninfer-4090
 # 4) 落地自检（不需要 torch，也不需要 GPU）
 uv run nifer-ternary check  --repo /path/to/ninfer-4090
 
-# 5) 构建
+# 5) 补齐构建依赖（Rocky Linux 10；其他发行版见同一份文档的对照表）
+tools/verify/install_deps_rocky10.sh check     # 只自检
+sudo tools/verify/install_deps_rocky10.sh install
+
+# 6) 构建
 export NINFER_ROOT=/path/to/ninfer-4090
 tools/verify/build.sh clean        # 3090 用 NINFER_ARCH=86
 ```
@@ -54,12 +58,14 @@ tools/
   verify/
     run_rotation_oracle.sh               ← 一键：编译旋转 harness → 真机跑 → numpy oracle 比对
     build.sh / loadtest.sh / gentest.sh  ← Linux 构建与探针（替代原包的 .cmd）
+    install_deps_rocky10.sh              ← Rocky Linux 10 依赖安装与自检（check / install）
     check_{payload_order,row_order,signs,assembly,embedding}.py
     oracle_rot.py / gemm_oracle.py / list_objects.py
     harness/{rot_test.cu,gemm_test.cu}   ← 编译引擎同一份真代码的独立 nvcc 测试台
 src/nifer_ternary/                       ← 应用 / 状态检查 / 自检的 CLI
 tests/                                   ← 12 个用例（含负控）
 docs/移植报告-ninfer-4090.md             ← 判定依据 + 实测证据 + 未验证部分
+docs/依赖安装-RockyLinux10.md            ← 缺失系统库清单、安装命令、版本校验与备选方案
 ```
 
 ---
@@ -68,7 +74,7 @@ docs/移植报告-ninfer-4090.md             ← 判定依据 + 实测证据 + �
 
 | 项 | 结果 |
 |---|---|
-| 全部 C++ 翻译单元语法检查 | **122 个中 116 通过**；6 个失败全部是缺第三方系统头（`curl/curl.h`、`httplib.h`、`libavcodec/*`、`xgrammar/*`），与本补丁无关 |
+| 全部 C++ 翻译单元语法检查 | **122 个中 116 通过**；6 个失败经复测只有 2 个是真缺系统包（`libavcodec/*`、`curl/curl.h`），另 4 个是构建期生成物（`ui.h`、`xgrammar/*`）与探测命令自身的 include 路径缺失，均与本补丁无关 |
 | 三元 CUDA 翻译单元（nvcc 13.3 / sm_89）| **3/3 编译通过**，唯一告警是上游既有的 `launch_pq2_gemv declared but never referenced` |
 | 折叠基旋转内核（RTX 4090 真机 + numpy oracle）| **6/6 PASS**，负控全部分离（正确的 rel_l2 ≈ 2.2e-3，负控 ≥ 0.97）|
 | `tools/artifact` 三元几何 vs 引擎 | `[248320,5120]` → PTQ1_0 278,118,400 B / PQ2_0 337,715,200 B，与引擎侧注释逐字节一致 |
