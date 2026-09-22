@@ -113,6 +113,17 @@ python3 tools/pack.py build out.ninfer
 
 模板必须是 **groupwise-int** 那一版（`identity.weights_id == "groupwise-int"`）；`nvfp4` 版的 GDN/attention 是融合命名，不在映射表里。`pack.py` 现在会**开门见山地拦住**它并给出转换命令，而不是等 200 行后抛 `unmapped gdn object`。
 
+模板还必须是**容器 v2**。上游 `neroued/Qwen3.8-27B-NInfer` 的 `main` 在 v1.2.0 之后发布过 **v3** 制品
+（提交 `51630a0c`「Publish v3 artifact」），而引擎侧 `src/artifact/reader.cpp` 与本脚本都只认 v1 / v2 ——
+拿 v3 当模板会在 JSON 目录偏移上失败，报出一个与真实原因无关的 `JSONDecodeError`。`pack.py` 现在会先读
+容器前缀并把版本号直接报出来。可用的 v2 修订版是 `dc370fb6295a`（「Update artifact with DFlash2
+companion weights」，正好带 v1.2.0 那个 validate-only stub 要消费的 66 个 `dflash2/*` 张量）：
+
+```bash
+curl -L -o qwen3_8_27b.v2.ninfer \
+  https://huggingface.co/neroued/Qwen3.8-27B-NInfer/resolve/dc370fb6295a/qwen3_8_27b.ninfer
+```
+
 ---
 
 ## E. 必须做的验证

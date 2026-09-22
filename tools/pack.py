@@ -386,11 +386,34 @@ def _weights_id(identity):
     return None
 
 
+#: 容器前缀（<8s magic, <Q json_bytes>）与引擎侧 src/artifact/reader.cpp 的 kMagic 对齐。
+_CONTAINER_MAGIC_V1 = b"NINFER\x00\x01"
+_CONTAINER_MAGIC_V2 = b"NINFER\x00\x02"
+_PREFIX = struct.Struct("<8sQ")
+
+
 def load_template():
     with open(TEMPLATE, "rb") as f:
-        f.seek(16)
-        blob = f.read(8 << 20)
-    obj, _ = json.JSONDecoder().raw_decode(blob.decode("utf-8", "replace"))
+        prefix = f.read(_PREFIX.size)
+        if len(prefix) != _PREFIX.size:
+            raise SystemExit(f"模板过短，读不到容器前缀: {TEMPLATE}")
+        magic, json_bytes = _PREFIX.unpack(prefix)
+        # 上游发布过容器 v3 的制品，而引擎与本脚本都只认 v1（经迁移）/ v2。不在这里拦住的话，
+        # JSON 目录的偏移不对，报出来的是一个与真实原因毫无关系的 JSONDecodeError。
+        if magic == _CONTAINER_MAGIC_V1:
+            raise SystemExit(
+                f"模板是容器 v1，本脚本只认 v2: {TEMPLATE}\n"
+                f"  先迁移: python3 -m tools.artifact.migrate_v1_to_v2 <artifact>")
+        if magic != _CONTAINER_MAGIC_V2:
+            raise SystemExit(
+                f"模板容器版本不受支持: magic={magic!r} path={TEMPLATE}\n"
+                f"  引擎只接受 NINFER v1 / v2（src/artifact/reader.cpp），本脚本只接受 v2。\n"
+                f"  上游 main 上的 qwen3_8_27b.ninfer 已是 v3；请改用仍是 v2 的修订版，例如\n"
+                f"    curl -L -o tpl.ninfer \\\n"
+                f"      https://huggingface.co/neroued/Qwen3.8-27B-NInfer/resolve/"
+                f"dc370fb6295a/qwen3_8_27b.ninfer")
+        blob = f.read(json_bytes)
+    obj = json.loads(blob.decode("utf-8"))
     identity, objects = obj["identity"], obj["objects"]
     got = _weights_id(identity)
     if got != TEMPLATE_SCHEMA:
@@ -934,15 +957,16 @@ def main() -> int:
     if not args:
         print(__doc__)
         return 2
-    if not Path(TEMPLATE).exists():
+    # 空字符串的 Path('') 等于 Path('.')，exists() 为真，会一路走到 open('') 才报错。
+    if not TEMPLATE or not Path(TEMPLATE).exists():
         raise SystemExit(
-            f"模板不存在: {TEMPLATE}\n"
+            f"模板未指定或不存在: {TEMPLATE!r}\n"
             f"  用 --template <path> 或环境变量 NINFER_TERNARY_TEMPLATE 指定。\n"
             f"  模板必须与目标制品同 schema：weights_id={TEMPLATE_SCHEMA}"
             f"（不是 nvfp4，见 README FAQ）。")
-    if not Path(GGUF).exists():
+    if not GGUF or not Path(GGUF).exists():
         raise SystemExit(
-            f"GGUF 不存在: {GGUF}\n"
+            f"GGUF 未指定或不存在: {GGUF!r}\n"
             f"  用 --gguf <path> 或环境变量 NINFER_TERNARY_GGUF 指定。\n"
             f"  本脚本没有内置默认路径，必须显式给出。")
     g = Gguf(GGUF)

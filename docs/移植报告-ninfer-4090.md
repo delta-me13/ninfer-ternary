@@ -63,6 +63,8 @@ diff -u <v1.0.8 原文件> <ada-ternary changed-files 同路径文件>          
   `frontend.cpp` 缺的 `xgrammar` 由 configure 阶段 FetchContent 拉取。均与本补丁无关，详见 `docs/依赖安装-RockyLinux10.md`。
 - **CUDA**：`nvcc 13.3 / sm_89` 编译 3 个三元翻译单元，全部通过；唯一告警是上游既有的
   `launch_pq2_gemv declared but never referenced`（本包注释里已说明该函数为何暂时不接线）。
+- **完整 CMake 构建**：sm_89 与 sm_86 两条都从零 configure、全量编译并链接通过（`exit 0`），
+  带 `-DBUILD_TESTING=ON` 的第三条也完成。细节与 cubin 证据见 §4.5。
 
 ### 4.2 旋转内核：真机 + 独立 oracle
 
@@ -106,13 +108,102 @@ T=1 时 token 主序与行主序完全重合，所以 T=1 全绿 ≠ 正确。"*
 `nifer-ternary check` 与 `tests/test_checks.py` 双重把守：`[248320, 5120]` 下
 PTQ1_0_G128 = 278,118,400 B、PQ2_0_G128 = 337,715,200 B，与引擎注释里写死的数字逐字节一致。
 
+### 4.5 架构支持：三元移植没有收窄任何东西
+
+**先纠正一个前提：`ninfer-4090` v1.2.0 并不支持 `sm_86`~`sm_120`。** 它只支持 `sm_86` 与 `sm_89`，
+而且是一道硬闸门（`CMakeLists.txt`，在任何 `option` 之前）：
+
+```cmake
+if(NOT CMAKE_CUDA_ARCHITECTURES MATCHES "^(86|89)$")
+  message(FATAL_ERROR "NInfer supports CMAKE_CUDA_ARCHITECTURES=86 or 89; got ...")
+endif()
+```
+
+`sm_86` 来自 `Don-Chad/ninfer-3090` 血缘（3090），`sm_89` 是本线主目标（4090）。传 `120` 会在
+configure 阶段被直接拒绝 —— 这不是本补丁引入的，本补丁一行都没碰架构判定。
+
+**NVFP4 / FP8 也不是本补丁丢弃的。** 它们是 v1.0.8-windows（Ada / Windows）那条线的格式：
+本线的 `QType` 到 `I32_CTRL = 6` 为止、`src/ops/linear/` 下只有 `bf16 / q4 / q5 / q6 / w8`；
+而来源基座 `ninfer-4090-windows @ v1.0.8` 里才是 `NVFP4 = 7`、`FP8_E4M3FN_ROW_BF16S = 8`，
+外加 `src/ops/linear/{nvfp4,fp8}/`。这件事写在 v1.2.0 自己的发布说明里：
+
+> **Blackwell SM120 and NVFP4 Purge** —— *Surgically deleted 45+ SM120 NVFP4 kernel files, TMA
+> loaders, container parser descriptors, test fixtures, model cards, and conversion scripts,
+> keeping the codebase strictly targeted to Ada Lovelace (`sm_89`).*
+> —— `RELEASE_NOTES_1.2.0.md`
+
+也就是说：NVFP4 / FP8 是**上游在 v1.2.0 里主动铲掉的**，比本补丁早存在一个版本。本补丁从 Ada 线
+搬来的三元增量里确实夹带了一些 `case QType::NVFP4:` / `FP8_E4M3FN_ROW_BF16S` 分支，但那些分支引用
+的是 Ada 线的枚举值 —— 在本线这两个符号**根本不存在**，照抄会直接编译不过。去掉它们是编译前提，
+不是功能取舍；把它们"加回来"等于把整条 Ada 线的 NVFP4/FP8 内核族反向移植过来，那是另一个工程。
+
+#### 条件编译本来就在，而且两个架构都真编过了
+
+本仓没有另造开关：架构选择走的是上游既有的两处机制 —— `-DCMAKE_CUDA_ARCHITECTURES=86|89` 与由它
+派生的 `NINFER_SM86` / `NINFER_SM89` 宏；`tools/verify/build.sh` 只是把它包成 `NINFER_ARCH=86|89`，
+并顺手修掉了它自己 `-- <额外参数>` 未被消费的缺陷。
+
+三元内核**没有引入任何架构专属代码**：三元目录下 grep 无 `__CUDA_ARCH__`、无 `NINFER_SM86` /
+`NINFER_SM89`（全仓唯一用到这两个宏的是上游既有的 `w8_rowsplit_gemm_splitk.cu`）。
+两个架构各自完整构建的结果：
+
+| 构建 | 命令 | 结果 |
+|---|---|---|
+| sm_89（4090）| `NINFER_ARCH=89 tools/verify/build.sh clean` | **exit 0**；`apps/ninfer` 234 MB、`apps/ninfer-serve` 246 MB |
+| sm_86（3090）| `NINFER_ARCH=86 tools/verify/build.sh clean` | **exit 0**；`apps/ninfer` 242 MB |
+| sm_89 + 测试 | `NINFER_ARCH=89 … build.sh clean -- -DBUILD_TESTING=ON` | 见 §5 关于上游测试缺陷的说明 |
+
+两个架构里三元内核都是**原生 cubin**（不是 PTX 兜底，也不会在 3090 上退回解释执行）：
+
+```text
+ternary_rotation.cu.o      -> ternary_rotation.sm_89.cubin      / ternary_rotation.sm_86.cubin
+ternary_rowsplit_gemm.cu.o -> ternary_rowsplit_gemm.sm_89.cubin / ternary_rowsplit_gemm.sm_86.cubin
+```
+
+#### 想把 sm_120（5090）加回来要做什么
+
+那是**反向移植**，不是改一个数字：需要把 v1.2.0 铲掉的 45+ 个 SM120/NVFP4 内核、TMA loader、
+容器解析描述符从 `ninfer-4090-windows` v1.0.8 线搬回来，让 `QType` 扩到 7 / 8，并把 MMA 调度从
+Ada 适配到 Blackwell；然后才谈得上摘掉上面那道 `FATAL_ERROR`。上游把它写成硬失败是有意的：
+没有验证过的架构不该静默走进一套只做过 Ada 调优的调度。本补丁把三元取值放在 9 / 10、避开 7 / 8，
+正是为了给这件事留出空位而不产生静默冲突。
+
+### 4.6 上游漂移：官方模板制品已经走到容器 v3
+
+在准备端到端验证时发现，`neroued/Qwen3.8-27B-NInfer` 的 `main` 分支上的 `qwen3_8_27b.ninfer`
+**不是引擎能读的容器版本**。实测前 8 字节：
+
+| 修订 | 首 8 字节 | 容器 | 目录偏移 | `json_bytes` | 体积 |
+|---|---|---|---|---|---|
+| `1cbd84e7`（`main`）| `NINFER\x00\x03` | **v3** | 32 | 372,704 | 20,437,521,664 B |
+| `dc370fb6295a` | `NINFER\x00\x02` | **v2** | 16 | 185,105 | 20,437,336,576 B |
+
+v3 在前缀之后多了 16 字节摘要，JSON 目录从偏移 32 开始，且顶层键变成
+`components / objects / bindings / uses / metadata / provenance / files`（**没有** `identity`）。
+而 ninfer-4090 v1.2.0 两边都只认 v1 / v2：
+
+- C++：`src/artifact/reader.cpp` 的 `kMagic` / `kV1Magic`，否则抛 `artifact magic is not NInfer v1 or v2`；
+- Python：`tools/artifact/container.py` 的 `MAGIC = b"NINFER\x00\x02"`。
+
+时间线也对得上：HF 提交 `51630a0c` 就是「Publish v3 artifact and updated model card」，在 v1.2.0 之后。
+上一个修订 `dc370fb6295a`「Update artifact with DFlash2 companion weights」是 v2，并且正好带 66 个
+`dflash2/*` 张量 —— 即 v1.2.0 新增的 validate-only stub 要消费的那批。**做三元模板应该钉这个修订。**
+
+`pack.py` 现在会先读容器前缀并把版本号直接报出来，而不是在偏移 16 上解一个不是 JSON 的东西、
+抛一个与真实原因无关的 `JSONDecodeError`。
+
 ## 5. 未能验证的部分（诚实交代）
 
-- **端到端数值（PPL / 困惑度 / 接受率）没有复跑**：需要 Ternary Bonsai 2 27B 权重（约 7 GB GGUF）
-  与一份 groupwise-int 模板制品，本环境不具备，且本仓按约定不分发权重。原先的数字
-（PPL 6.445、MTP K=2 96.7–130.8 t/s）来自 Ada / Windows 线，**不能直接外推到本线**。
-- **完整 CMake 构建未执行**：本机缺 `cmake`、`libcurl` 开发包与 FFmpeg 开发包；`xgrammar` 由 configure 阶段联网拉取，
-  不是缺包。依赖补齐命令与实测校验见 `docs/依赖安装-RockyLinux10.md`，装完后需重跑 configure 才能给出完整构建结论。
-  因此"逐翻译单元编译通过"是本次能达到的最强编译证据。
+- **端到端数值（PPL / 困惑度 / 接受率）没有复跑**：需要真实的 Ternary Bonsai 2 27B 权重与一份
+  groupwise-int 模板制品，本仓按约定不分发权重。原先的数字（PPL 6.445、MTP K=2 96.7–130.8 t/s）
+  来自 Ada / Windows 线，**不能直接外推到本线**。
+- **引擎自带测试有 2 项失败，且是本补丁引起的**（完整构建本身已通过，见 §4.5）：
+  `ninfer_gdn_input_proj_conv_snapshot_test` 与 `ninfer_gdn_input_proj_conv_record_test` 断言
+  "工作区查询值 == 执行高水位"，而本补丁让这两个容量查询对**非三元**父权重也按三元规模预留。
+  根因是刻意共用了 `GroupwiseInt` 权重档案：三元制品沿用它，于是容量查询在"查询侧只有形状、没有格式"
+  的签名下无法区分两者。运行不会出错（多预留是安全的），但该不变量被破坏。正确修法是给折叠三元一个
+  独立的 `WeightsProfile`（由 `Package::resolve_weights` 依据制品身份解析），让容量查询重新精确；
+  涉及 `export/.../package.h` 枚举、`resolve_weights`、`variant.cpp` 的 14 处 `case` 与 `bindings.cpp` 的 4 处。
+  其余 82/84 用例通过。
 - **MMA 路径只做了编译验证**，没有在真机上与 SIMT 路径做数值对照（需要真实三元权重）。
   对照方法已备好：`NINFER_TERNARY_MMA=0/1` 跑同一窗口比数值。

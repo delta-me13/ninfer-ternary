@@ -13,6 +13,10 @@ Ternary Bonsai 2 27B，Ada sm_89 + Windows 线）的成果，**适配到
 来源基座 Ambolio/ninfer-4090-windows @ 6eb70a07（v1.0.8-windows，Ada / Windows）—— 与目标树不是同一条线
 ```
 
+> **架构**：本线只支持 `sm_86`（3090）与 `sm_89`（4090）—— 上游用 `FATAL_ERROR` 硬拒 `sm_120`。
+> NVFP4 / FP8 是上游 v1.2.0 **主动铲掉**的格式，不是本补丁丢弃的；本补丁一个架构判定都没碰，
+> 且 sm_86 / sm_89 两条都已完整构建通过。详见[移植报告 §4.5](docs/移植报告-ninfer-4090.md)。
+
 ---
 
 ## 快速开始
@@ -63,7 +67,7 @@ tools/
     oracle_rot.py / gemm_oracle.py / list_objects.py
     harness/{rot_test.cu,gemm_test.cu}   ← 编译引擎同一份真代码的独立 nvcc 测试台
 src/nifer_ternary/                       ← 应用 / 状态检查 / 自检的 CLI
-tests/                                   ← 12 个用例（含负控）
+tests/                                   ← 14 个用例（含负控；只用临时目录与仓内快照，不依赖机器状态）
 docs/移植报告-ninfer-4090.md             ← 判定依据 + 实测证据 + 未验证部分
 docs/依赖安装-RockyLinux10.md            ← 缺失系统库清单、安装命令、版本校验与备选方案
 ```

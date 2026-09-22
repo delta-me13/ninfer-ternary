@@ -9,6 +9,10 @@ set -euo pipefail
 
 mode="${1:-incremental}"
 shift || true
+# 文档中的 "-- <额外参数>" 是可选的视觉分隔符；不剥掉会被 cmake 当成未知参数。
+if [[ "${1:-}" == "--" ]]; then
+  shift
+fi
 
 : "${NINFER_ROOT:?请先设置 NINFER_ROOT=<ninfer 源码树根目录>}"
 arch="${NINFER_ARCH:-89}"
