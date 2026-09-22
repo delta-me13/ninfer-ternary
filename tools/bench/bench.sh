@@ -21,7 +21,8 @@
 #   NINFER_BENCH         ninfer_bench 可执行文件（默认在若干常见构建目录里找）
 #   NINFER_ROOT          ninfer 源码树，用来定位默认语料与记录引擎修订
 #   NINFER_BUILD_ROOT    构建目录
-#   NINFER_BENCH_OUT     输出目录（默认 <制品目录>/bench/<UTC 时间戳>）
+#   NINFER_BENCH_OUT     输出目录（默认 ./out/bench-<制品名>-<UTC 时间戳>）
+#                        结果是证据，脚本既不写进制品目录，也不自动删除
 #   NINFER_BENCH_CORPUS  语料文件（默认 <NINFER_ROOT>/bench/fixtures/bench_corpus.ids）
 #   NINFER_BENCH_REPS    重复次数（默认 5）
 #   NINFER_BENCH_WARMUP  预热次数（默认 1）
@@ -129,7 +130,7 @@ suite_cases() {
   esac
 }
 
-out_dir="${NINFER_BENCH_OUT:-$(dirname "${artifact}")/bench/$(date -u +%Y%m%dT%H%M%SZ)}"
+out_dir="${NINFER_BENCH_OUT:-out/bench-$(basename "${artifact}" .ninfer)-$(date -u +%Y%m%dT%H%M%SZ)}"
 mkdir -p "${out_dir}"
 
 sha_of() {

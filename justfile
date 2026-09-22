@@ -150,11 +150,12 @@ tool-install-light:
 
 # ---- 验证 ----------------------------------------------------------------
 
-# 旋转内核 oracle：真机内核 vs numpy FP64
-oracle arch="89" out="bm2out":
+# 旋转内核 oracle：真机内核 vs numpy FP64（中间产物落 out/oracle，可被 clean 清掉）
+oracle arch="89" out="out/oracle":
     NINFER_ARCH={{arch}} PYTHON="{{py}}" tools/verify/run_rotation_oracle.sh "{{out}}"
 
-# 端到端一致性矩阵：内核路径 / 预填充分块 / 投机，判据是贪心 token 序列逐字节一致
+# 端到端一致性矩阵：判据是贪心 token 序列逐字节一致。
+# 结果落 out/e2e-<制品名>（证据，不删）；要改道设 NINFER_E2E_OUT。
 e2e artifact prompt="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -164,7 +165,8 @@ e2e artifact prompt="":
       tools/verify/e2e_ternary.sh "{{artifact}}"
     fi
 
-# 标准化跑分：固定语料 / 重复 / 预热 / 分块，产出 tidy CSV + 环境清单
+# 标准化跑分：固定语料 / 重复 / 预热 / 分块，产出 tidy CSV + 环境清单。
+# 结果落 out/bench-<制品名>-<UTC 时间戳>（证据，不删）；要改道设 NINFER_BENCH_OUT。
 bench artifact suite="standard":
     tools/bench/bench.sh "{{artifact}}" {{suite}}
 
@@ -262,11 +264,12 @@ all artifact:
 
 # ---- 清理 ----------------------------------------------------------------
 
-# 清掉本仓产生的全部中间目录：构建目录、oracle 产物与系统临时目录里的临时树
+# 清掉本仓产生的全部中间目录：构建目录、oracle 产物与系统临时目录里的临时树。
+# 刻意不碰 out/ —— 那是验证与跑分的结果（证据），不是中间产物。
 clean:
     #!/usr/bin/env bash
     set -euo pipefail
-    for path in "{{build_root}}" "{{build_root_86}}" "{{test_root}}" "{{bench_root}}" bm2out /tmp/ninfer-ternary-*; do
+    for path in "{{build_root}}" "{{build_root_86}}" "{{test_root}}" "{{bench_root}}" out/oracle /tmp/ninfer-ternary-*; do
       [[ -e "$path" ]] || continue
       echo "删除 $path"
       rm -rf "$path"

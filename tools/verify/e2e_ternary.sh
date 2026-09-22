@@ -8,7 +8,8 @@
 #
 # 环境变量：
 #   NINFER_CLI          ninfer 可执行文件（默认 <NINFER_BUILD_ROOT>/apps/ninfer）
-#   NINFER_E2E_OUT      输出目录（默认 <制品所在目录>/e2e）
+#   NINFER_E2E_OUT      输出目录（默认 ./out/e2e-<制品名>）
+#                       结果是证据，脚本既不写进制品目录，也不自动删除
 #   NINFER_E2E_MAX_NEW  生成长度（默认 192）
 set -euo pipefail
 
@@ -16,7 +17,7 @@ artifact="${1:?用法：e2e_ternary.sh <artifact.ninfer> [prompt]}"
 prompt="${2:-A bat and a ball cost 1.10 dollars in total. The bat costs 1.00 dollar more than the ball. How much does the ball cost? Reason briefly, then state the answer.}"
 cli="${NINFER_CLI:-${NINFER_BUILD_ROOT:-build}/apps/ninfer}"
 max_new="${NINFER_E2E_MAX_NEW:-192}"
-out_dir="${NINFER_E2E_OUT:-$(dirname "${artifact}")/e2e}"
+out_dir="${NINFER_E2E_OUT:-out/e2e-$(basename "${artifact}" .ninfer)}"
 
 if [[ ! -x "${cli}" ]]; then
   echo "缺少 CLI 可执行文件: ${cli}" >&2

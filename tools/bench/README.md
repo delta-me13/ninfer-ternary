@@ -46,7 +46,7 @@ NINFER_ROOT=/path/to/ninfer-4090 tools/bench/bench.sh <artifact.ninfer> [suite .
 ## 输出
 
 ```text
-<制品所在目录>/bench/<UTC 时间戳>/
+./out/bench-<制品名>-<UTC 时间戳>/
   manifest.txt             环境与输入摘要（制品/GHz/驱动/引擎修订/开关）
   results.csv              全部用例的 tidy CSV，首两列是 case,suite
   <suite>__<case>.csv      单次 ninfer_bench 的原始 CSV
@@ -63,7 +63,7 @@ NINFER_ROOT=/path/to/ninfer-4090 tools/bench/bench.sh <artifact.ninfer> [suite .
 | `NINFER_BENCH` | 在若干常见构建目录里找 | `ninfer_bench` 可执行文件 |
 | `NINFER_ROOT` | — | 定位默认语料与记录引擎修订 |
 | `NINFER_BUILD_ROOT` | — | 参与定位 `ninfer_bench` |
-| `NINFER_BENCH_OUT` | `<制品目录>/bench/<时间戳>` | 输出目录 |
+| `NINFER_BENCH_OUT` | `./out/bench-<制品名>-<时间戳>` | 输出目录 |
 | `NINFER_BENCH_CORPUS` | `<NINFER_ROOT>/bench/fixtures/bench_corpus.ids` | 语料 |
 | `NINFER_BENCH_REPS` | `5` | 重复次数 |
 | `NINFER_BENCH_WARMUP` | `1` | 预热次数 |
