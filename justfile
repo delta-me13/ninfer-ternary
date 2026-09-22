@@ -264,11 +264,15 @@ all artifact:
 
 # ---- 清理 ----------------------------------------------------------------
 
-# 清掉本仓产生的全部中间目录：构建目录、oracle 产物与系统临时目录里的临时树。
+# 清掉本仓产生的全部中间目录：构建目录、oracle 产物、字节码缓存与系统临时目录里的临时树。
 # 刻意不碰 out/ —— 那是验证与跑分的结果（证据），不是中间产物。
 clean:
     #!/usr/bin/env bash
     set -euo pipefail
+    while IFS= read -r -d '' cache; do
+      echo "删除 $cache"
+      rm -rf "$cache"
+    done < <(find . -name .venv -prune -o -name __pycache__ -type d -print0)
     for path in "{{build_root}}" "{{build_root_86}}" "{{test_root}}" "{{bench_root}}" out/oracle /tmp/ninfer-ternary-*; do
       [[ -e "$path" ]] || continue
       echo "删除 $path"

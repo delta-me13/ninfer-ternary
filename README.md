@@ -152,7 +152,7 @@ nvfp4）会在后面以张量名对不上的形式失败。
     just e2e <制品>     # 端到端一致性矩阵（结果在 out/e2e-<制品名>）
     just bench <制品>   # 标准化跑分（结果在 out/bench-<制品名>-<时间戳>）
     just pack PQ2_0     # 打包三元制品
-    just clean          # 清掉构建目录与临时目录
+    just clean          # 清掉构建目录、字节码缓存与临时目录
 
 补丁侧的子命令（`manifest` / `status` / `apply` / `check` / `export`）走
 `uv run python -m ninfer_ternary`，不随 `uv tool install` 安装 —— 它们只在开发与验证时需要。
