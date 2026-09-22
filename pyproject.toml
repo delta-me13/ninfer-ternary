@@ -1,0 +1,56 @@
+[project]
+name = "nifer-ternary"
+version = "0.2.0"
+description = "把 NInfer 三元（Ternary Bonsai 2 27B）移植改动落到 ninfer-4090 检出上的工具集"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+nifer-ternary = "nifer_ternary:main"
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.6",
+]
+
+[tool.uv.build-backend]
+module-root = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+# tools/ 是从 ninfer-ada-ternary 平移过来的脚本，保持原貌以便与上游逐行对照。
+extend-exclude = ["tools"]
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "I",   # isort
+  "D",   # pydocstyle
+  "T20", # flake8-print — 禁止 print
+]
+extend-select = ["G", "LOG"]
+# 中文句号不被 pydocstyle 认作句末标点，而本仓要求中文优先的 docstring。
+ignore = ["D400", "D415"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
+"src/nifer_ternary/cli.py" = ["T20"]
+
+[tool.ruff.format]
+docstring-code-format = true
