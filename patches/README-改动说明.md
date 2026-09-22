@@ -2,7 +2,7 @@
 
 > **本包是把 `ninfer-ada-ternary` 的三元能力适配到 `ninfer-4090`（v1.2.0 线，sm_86 / sm_89，支持 Linux）的可移植快照。**
 > 按目录名覆盖回 ninfer 源码树根目录 → **必须重编**（见 §D）→ 按 §E 做验证。
-> 用 `ninfer-ternary apply --repo <ninfer 树> --dry-run` 可以先看会写哪些文件。
+> 用 `python -m ninfer_ternary apply --repo <ninfer 树> --dry-run` 可以先看会写哪些文件。
 
 | 项 | 值 |
 |---|---|
@@ -116,6 +116,11 @@ just from-scratch PQ2_0              # patch-apply -> build -> build-tests -> ct
 ```
 
 这条链路在干净检出上核对过：`apply` 写入 45 个文件后，目录树与已应用检出逐字节一致（`diff -r` 无差异）。
+
+不想克隆本仓时，`uv tool install` 把这条链路搬进了 wheel 构建阶段：拉取上游 → 落地同一份补丁 →
+落地自检 → CMake/Ninja 编译 → 把可执行文件与打包器打进 wheel → 删除临时树。装完直接得到
+`ninfer` / `ninfer-serve` / `ninfer-convert` 三个命令，其中 `ninfer-convert` 就是本节的
+`tools/pack.py`。见 [`docs/uv-工具安装.md`](../docs/uv-工具安装.md)。
 
 三元制品（改了 `pack.py` 或 `tools/artifact` 之后必须重打）：
 

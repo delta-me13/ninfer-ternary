@@ -105,7 +105,7 @@ T=1 时 token 主序与行主序完全重合，所以 T=1 全绿 ≠ 正确。"*
 ### 4.4 制品几何
 
 `tools/artifact` 与引擎侧 `storage_layouts.cpp::quant_geometry()` 的一致性由
-`ninfer-ternary check` 与 `tests/test_checks.py` 双重把守：`[248320, 5120]` 下
+`python -m ninfer_ternary check` 与 `tests/test_checks.py` 双重把守：`[248320, 5120]` 下
 PTQ1_0_G128 = 278,118,400 B、PQ2_0_G128 = 337,715,200 B，与引擎注释里写死的数字逐字节一致。
 
 ### 4.5 架构支持：三元移植没有收窄任何东西
@@ -415,7 +415,7 @@ WorkspaceArena leaf_workspace(storage);
 
 ```bash
 git clone /root/ninfer-4090 /root/ninfer-fresh      # HEAD 是未改动的 v1.2.0（5c60b7c9）
-uv run ninfer-ternary apply --repo /root/ninfer-fresh
+uv run python -m ninfer_ternary apply --repo /root/ninfer-fresh
 diff -r --exclude=.git /root/ninfer-fresh /root/ninfer-4090
 ```
 
@@ -429,13 +429,50 @@ diff -r --exclude=.git /root/ninfer-fresh /root/ninfer-4090
 
 | 步骤（全部在干净检出上）| 结果 |
 |---|---|
-| `ninfer-ternary apply --repo <fresh>` | 写入 **45** 个文件；`diff -r` 与已应用检出**无差异** |
-| `ninfer-ternary check --repo <fresh>` | **20/20** |
+| `python -m ninfer_ternary apply --repo <fresh>` | 写入 **45** 个文件；`diff -r` 与已应用检出**无差异** |
+| `python -m ninfer_ternary check --repo <fresh>` | **20/20** |
 | `build.sh incremental -- -DBUILD_TESTING=ON` | **726/726 目标，exit 0**（含此前编不过的 `ninfer_qwen3_6_27b_load_plan_test`）|
 | `ctest` | **84/84 通过，0 失败**（5 项 `real` 按设计跳过）|
 
 于是 `just from-scratch PQ2_0`（补丁 → 编译 → 测试 → 打包）是一条真能从零跑到尾的命令，而不是
 "先手工把文件覆盖进去再说"。
+
+### 4.11 装成工具：`uv tool install` 走完同一条链路
+
+前面各节都在仓库里跑。这一节回答另一个问题：**不克隆本仓，能不能得到同一个引擎？**
+
+跑法就是一条命令（`just tool-install` 是它的等价物）：
+
+    time uv tool install --force .
+
+本仓自带一个 PEP 517 构建后端（`build_backend.py`），把 §4.10 的链路搬进了 wheel 构建阶段：
+按清单钉死的提交取上游（先试单提交浅取，失败退回完整克隆）→ 落地同一份 45 文件补丁 →
+落地自检 → `cmake -G Ninja -DCMAKE_CUDA_ARCHITECTURES=89` 编译 `ninfer` 与 `ninfer-serve` →
+把可执行文件、上游 `tools/artifact`、打包器与补丁打进 wheel → 删除整棵临时树。
+
+| 项 | 实测 |
+|---|---|
+| 安装耗时 | **6 分 32 秒**（user 49 分 08 秒；本机 128 核，`-j 128`）|
+| wheel | `ninfer_ternary-0.3.0-py3-none-linux_x86_64.whl`，**234,295,913 B = 223 MiB** |
+| 装好的工具环境 | **517 MiB**（引擎本体）；带 `[convert]` 时 5.0 GiB（多一个 CUDA 版 torch）|
+| 临时树 | 构建期在 `$TMPDIR` 下的 `ninfer-ternary-{wheel,build}-*`，安装结束**已全部删除**（`ls /tmp/ninfer-ternary-*` 为空）|
+| 装好的 `ninfer` | `--prompt '17 * 23 =' --no-thinking` 输出 **391**，exit 0 |
+| 装好的 `ninfer-convert` | 不设 `NINFER_ROOT`、只用随包的上游制品模块跑完 `check`：真实 20 GiB 模板 + 7 GiB GGUF，**1 分 55 秒**，`RESULT: OK` |
+
+**为什么值得单开一节**：这是"这个包能不能独立存在"的判据。前面各节的结论都依赖
+`/root/ninfer-4090` 这棵打过补丁的树；这条路径证明补丁、上游 Python 模块与编译产物可以被装进
+一个 wheel，装完把源码树删掉也不影响使用。
+
+两个诚实的缺口：
+
+- **第一次安装卡在 WebUI 下载**。CMake 配置阶段要从 GitHub release 取 3 MiB 的服务端 UI 包，
+  第一次尝试在 1 MiB 处停了 7 分钟（`file(DOWNLOAD ... TIMEOUT 60)` 对"缓慢但在推进"的传输
+  不触发超时）；中止后重试，同一下载 1.2 秒完成。属于网络抖动，但说明安装流程暴露在 GitHub CDN
+  上：`NINFER_TERNARY_ENABLE_UI=0` 可跳过它，代价是 `ninfer-serve` 用空 UI 桩。
+- **`ninfer-convert` 需要 torch**。上游 `tools/artifact/layouts.py` 在**导入期**就用 torch
+  （dtype 表与 Plane / Payload 类型别名），而本仓 `pack.py` 自己只把 torch 用在少数
+  函数里。折中做法是放成额外项：`uv tool install ".[convert]"`，默认安装因此保持"只有引擎"；
+  不带这个额外项时 `ninfer-convert` 会直接报缺 torch，而不是抛 traceback。
 
 ## 5. 未能验证的部分（诚实交代）
 

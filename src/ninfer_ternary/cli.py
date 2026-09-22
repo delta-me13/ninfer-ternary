@@ -1,8 +1,13 @@
-"""命令行入口：查看清单、检查状态、应用补丁、执行落地自检。"""
+"""命令行入口：查看清单、检查状态、应用补丁、执行落地自检、从零编译引擎。
+
+这个入口服务于仓库内部的开发与验证流程，不走 uv tool install 安装 —— 安装形态下用户要的是
+引擎本身（ninfer / ninfer-serve）与模型转换器（ninfer-convert）。
+"""
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import logging
 import sys
 from pathlib import Path
@@ -10,6 +15,7 @@ from typing import Sequence
 
 from . import __version__
 from .checks import check_all
+from .engine import BuildRequest, EngineError, build_engine
 from .export import ExportError, export_snapshot
 from .manifest import (
     ManifestError,
@@ -30,7 +36,7 @@ def _build_parser() -> argparse.ArgumentParser:
         配置好的解析器。
     """
     parser = argparse.ArgumentParser(
-        prog="ninfer-ternary",
+        prog="python -m ninfer_ternary",
         description="将 NInfer 三元（Ternary Bonsai 2 27B）移植改动应用到 ninfer-4090 检出。",
     )
     parser.add_argument("--version", action="version", version=f"ninfer-ternary {__version__}")
@@ -52,6 +58,14 @@ def _build_parser() -> argparse.ArgumentParser:
     check = sub.add_parser("check", help="对目标检出执行落地自检")
     check.add_argument("--repo", type=Path, required=True, help="ninfer 源码树根目录")
 
+    build = sub.add_parser("build-engine", help="拉取上游、打补丁、自检、编译引擎可执行文件")
+    build.add_argument("--destination", type=Path, required=True, help="可执行文件的落点目录")
+    build.add_argument("--source", type=Path, default=None, help="已有的目标检出；给定时跳过克隆")
+    build.add_argument("--arch", choices=("86", "89"), default=None, help="CUDA 架构")
+    build.add_argument("--jobs", type=int, default=None, help="编译并行度")
+    build.add_argument("--keep", action="store_true", help="保留临时目录")
+    build.add_argument("--run-tests", action="store_true", help="连引擎测试套件一起编译并运行")
+
     export_cmd = sub.add_parser("export", help="用检出内容刷新补丁快照、清单摘要与聚合 diff")
     export_cmd.add_argument("--repo", type=Path, required=True, help="ninfer 源码树根目录")
     export_cmd.add_argument("--patch", type=Path, default=None, help="聚合 diff 的输出路径")
@@ -63,6 +77,24 @@ def _build_parser() -> argparse.ArgumentParser:
         help="把清单之外的改动纳入补丁包（可重复）",
     )
     return parser
+
+
+def _log_level(args: argparse.Namespace) -> int:
+    """按子命令决定日志级别。
+
+    编译与拉取是长流程，用户需要看到进度；其余命令保持安静，只报错误。
+
+    Args:
+        args: 解析后的命令行参数。
+
+    Returns:
+        logging 的级别常量。
+    """
+    if args.verbose:
+        return logging.DEBUG
+    if args.command == "build-engine":
+        return logging.INFO
+    return logging.WARNING
 
 
 def _load(args: argparse.Namespace) -> PatchManifest:
@@ -206,6 +238,36 @@ def _cmd_check(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def _cmd_build_engine(args: argparse.Namespace, manifest: PatchManifest) -> int:
+    """从零编译引擎可执行文件。
+
+    命令行只覆盖显式给出的项，其余沿用环境变量（见 engine 模块的说明）。
+
+    Args:
+        args: 解析后的命令行参数。
+        manifest: 补丁清单，提供默认的上游仓库与提交。
+
+    Returns:
+        进程退出码。
+    """
+    base = BuildRequest.from_environment(manifest)
+    request = dataclasses.replace(
+        base,
+        arch=args.arch or base.arch,
+        jobs=args.jobs or base.jobs,
+        source=args.source.expanduser().resolve() if args.source else base.source,
+        keep=args.keep or base.keep,
+        run_tests=args.run_tests or base.run_tests,
+    )
+    destination = args.destination.expanduser().resolve()
+    result = build_engine(destination, request)
+    for name, path in sorted(result.programs.items()):
+        print(f"可执行文件 : {name} -> {path}")
+    print(f"落地自检   : {result.self_check_passed}/{result.self_check_total} 通过")
+    print(f"临时目录   : {result.scratch}{'（已保留）' if request.keep else '（已删除）'}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """命令行主入口。
 
@@ -217,7 +279,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     args = _build_parser().parse_args(argv)
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.WARNING,
+        level=_log_level(args),
         format="%(levelname)s %(name)s: %(message)s",
     )
     try:
@@ -230,8 +292,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_status(args, manifest)
         if args.command == "export":
             return _cmd_export(args, manifest)
+        if args.command == "build-engine":
+            return _cmd_build_engine(args, manifest)
         return _cmd_apply(args, manifest)
-    except (ManifestError, PatchError, ExportError) as error:
+    except (ManifestError, PatchError, ExportError, EngineError) as error:
         _LOGGER.error("%s", error)
         print(f"错误: {error}", file=sys.stderr)
         return 2

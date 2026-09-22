@@ -1,17 +1,27 @@
 [project]
 name = "ninfer-ternary"
-version = "0.2.0"
-description = "把 NInfer 三元（Ternary Bonsai 2 27B）移植改动落到 ninfer-4090 检出上的工具集"
+version = "0.3.0"
+description = "ninfer-4090 的三元移植：一条 uv tool install 拿到编译好的引擎与 GGUF 转换器"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+dependencies = ["numpy>=1.26"]
+
+[project.optional-dependencies]
+# 打包器要走上游 tools/artifact 的张量读写，那个模块在导入期就用 torch。
+# 因此引擎侧安装不装它，只有要转换模型时才装：uv tool install "ninfer-ternary[convert]"。
+convert = ["torch>=2.4"]
 
 [project.scripts]
-ninfer-ternary = "ninfer_ternary:main"
+ninfer = "ninfer_ternary.launch:main_ninfer"
+ninfer-serve = "ninfer_ternary.launch:main_serve"
+ninfer-convert = "ninfer_ternary.convert:main"
 
 [build-system]
-requires = ["uv_build>=0.12.10,<0.13.0"]
-build-backend = "uv_build"
+requires = []
+build-backend = "build_backend"
+backend-path = ["."]
 
 [dependency-groups]
 dev = [
@@ -19,9 +29,6 @@ dev = [
   "pytest>=8.0",
   "ruff>=0.6",
 ]
-
-[tool.uv.build-backend]
-module-root = "src"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -36,7 +43,7 @@ mypy_path = ["src", "."]
 exclude = ["(^|/)(tools|patches)/"]
 
 [[tool.mypy.overrides]]
-module = ["tools.*", "patches.*"]
+module = ["tools.*", "patches.*", "pack"]
 follow_imports = "skip"
 ignore_missing_imports = true
 
@@ -64,6 +71,7 @@ convention = "google"
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["D"]
 "src/ninfer_ternary/cli.py" = ["T20"]
+"src/ninfer_ternary/launch.py" = ["T20"]
 
 [tool.ruff.format]
 docstring-code-format = true

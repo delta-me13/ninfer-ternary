@@ -1,187 +1,205 @@
-# ninfer-ternary · 把 NInfer 三元能力适配到 ninfer-4090
+# ninfer-ternary
 
-把 [`ninfer-ada-ternary`](https://www.modelscope.cn/shensanshu/ninfer-ada-ternary.git)（NInfer 三元 /
-Ternary Bonsai 2 27B，Ada sm_89 + Windows 线）的成果，**适配到
-[`ninfer-4090`](https://github.com/UDPSendToFailed/ninfer-4090)（v1.2.0 线：支持 sm_86 / sm_89，支持 Linux）**。
+把 [NInfer](https://github.com/UDPSendToFailed/ninfer-4090)（Apache-2.0）的**三元**能力
+（Ternary Bonsai 2 27B）落到 **RTX 3090（sm_86）与 RTX 4090（sm_89）** 上。
 
-本仓**不发布任何模型权重**，也不发布由权重派生的 `.ninfer` 制品。这里只有引擎侧源码改动、打包器、
-验证脚本与说明。
+引擎源码不在本仓：安装时按钉死的提交从上游拉取，打上本仓的三元补丁，编译后打进 wheel，
+临时文件用完即删。装完你得到三个可执行文件：
 
-```
-目标树   UDPSendToFailed/ninfer-4090 @ 5c60b7c9（v1.2.0）
-改动来源 shensanshu/ninfer-ada-ternary @ ca845a4
-来源基座 Ambolio/ninfer-4090-windows @ 6eb70a07（v1.0.8-windows，Ada / Windows）—— 与目标树不是同一条线
-```
+| 命令 | 用途 |
+|---|---|
+| `ninfer` | 单卡命令行推理 |
+| `ninfer-serve` | OpenAI / Anthropic 兼容的推理服务 |
+| `ninfer-convert` | 把 Ternary Bonsai 的 GGUF 转成 ninfer 制品（`.ninfer`）|
 
-> **架构**：本线只支持 `sm_86`（3090）与 `sm_89`（4090）—— 上游用 `FATAL_ERROR` 硬拒 `sm_120`。
-> NVFP4 / FP8 是上游 v1.2.0 **主动铲掉**的格式，不是本补丁丢弃的；本补丁一个架构判定都没碰，
-> 且 sm_86 / sm_89 两条都已完整构建通过。详见[移植报告 §4.5](docs/移植报告-ninfer-4090.md)。
+本仓不发布任何模型权重，也不发布由权重派生的 `.ninfer` 制品。
 
 ---
 
-## 快速开始
+## 一分钟开始
 
-仓根的 `justfile` 把全部操作入口收成一条命令。`just` 列出配方，**`just config` 先打印它解析出来的
-路径**（换机器第一件事）。不用 `just` 的，右列就是它实际执行的命令。
+前提：Linux x86_64、NVIDIA 驱动与 CUDA 工具链、`git`、`cmake`、`ninja`、`gcc`、`uv`。
+Rocky Linux 10 上可以用仓内脚本一次装齐（见 [依赖安装](docs/依赖安装-RockyLinux10.md)）：
 
-| 配方 | 等价命令 | 做什么 |
+    tools/verify/install_deps_rocky10.sh install
+
+还没有 `uv` 的话：
+
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+
+安装过程需要联网：除了拉上游源码，CMake 配置阶段还会取 xgrammar 与服务端 Web UI 两个第三方包。
+离线环境请在一台联网机器上先 `uv build --wheel`，再把 wheel 拷过去装（见教程）。
+
+装推理引擎（会现场编译 CUDA 引擎，本机实测 6 分半）：
+
+    uv tool install git+https://github.com/<你的账号>/ninfer-ternary.git
+
+本地已有本仓时直接指目录，效果相同：
+
+    just tool-install          # 等价于 uv tool install --force .
+
+装完立刻可用，不需要仓库、也不需要构建目录：
+
+    ninfer --help
+    ninfer-serve --help
+
+要转换模型再加一个额外项：打包器要读写张量、依赖 torch，所以转换能力单独放：
+
+    uv tool install "ninfer-ternary[convert] @ git+https://github.com/<你的账号>/ninfer-ternary.git"
+    just tool-install-convert  # 本地目录的等价写法：uv tool install ".[convert]"
+
+    ninfer-convert             # 打印转换器用法
+
+细节、环境变量、离线安装与排错见 [把本仓当工具用](docs/uv-工具安装.md)。
+
+---
+
+## 转换一个模型
+
+`ninfer-convert` 来自上面带 `[convert]` 额外项的安装；只装了引擎的安装会在调用时
+明确提示补装，不会让你对着 traceback 猜。
+
+转换需要两样输入：
+
+| 输入 | 说明 |
+|---|---|
+| GGUF | `Ternary-Bonsai-2-27B-PQ2_0.gguf` 或 `-PTQ1_0.gguf`（HuggingFace 上的 Ternary Bonsai 2 27B）|
+| 模板 | 一个 **groupwise-int** 的 qwen3.8-27b ninfer 制品。模板提供视觉塔、MTP 头等"借用"张量与对象清单，不是可有可无的参考文件 |
+
+    ninfer-convert \
+      --template /data/Ternary-Bonsai-2-27B-ninfer/template/qwen3_8_27b.v2.ninfer \
+      --gguf     /data/Ternary-Bonsai-2-27B-gguf/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+      build      /data/Ternary-Bonsai-2-27B-ninfer/Ternary-Bonsai-2-27B-PQ2_0.ninfer
+
+写盘之前会先做只读自检（几何、解码往返、张量映射），确认没问题再落盘：
+
+    ninfer-convert --template <模板> --gguf <GGUF> check
+
+两个路径没有内置默认值，必须显式给出或走环境变量 `NINFER_TERNARY_TEMPLATE` /
+`NINFER_TERNARY_GGUF`。本机实测产物：
+
+| 制品 | 大小 | 说明 |
 |---|---|---|
-| `just config` | — | 打印 NINFER_ROOT / 构建目录 / 模板 / GGUF / 解释器 |
-| `just deps` | `tools/verify/install_deps_rocky10.sh check` | 构建依赖自检（Rocky Linux 10）|
-| `just deps-install` | `… install` | 安装构建依赖（需要 root）|
-| `just patch-manifest` | `uv run ninfer-ternary manifest` | 补丁清单摘要 |
-| `just patch-status` | `uv run ninfer-ternary status --repo $NINFER_ROOT` | 目标检出相对本补丁的状态 |
-| `just patch-dry-run` | `uv run ninfer-ternary apply --repo $NINFER_ROOT --dry-run` | 试运行，只报告不写文件 |
-| `just patch-apply` | `uv run ninfer-ternary apply --repo $NINFER_ROOT` | 落盘改动（分叉文件需 `--force`）|
-| `just patch-export` | `uv run ninfer-ternary export --repo $NINFER_ROOT` | 用检出内容刷新快照 / 清单 / 聚合 diff |
-| `just patch-check` | `uv run ninfer-ternary check --repo $NINFER_ROOT` | 落地自检（不需要 torch，也不需要 GPU）|
-| `just check` | `ruff check . && ruff format --check . && mypy . && pytest` | 代码门禁 |
-| `just build [86\|89]` | `NINFER_ARCH=89 tools/verify/build.sh` | 构建 |
-| `just build-tests` | `… -- -DBUILD_TESTING=ON` | 构建测试目标 |
-| `just ctest` | `ctest --output-on-failure` | 引擎测试套件 |
-| `just oracle` | `tools/verify/run_rotation_oracle.sh` | 旋转内核 vs numpy FP64 |
-| `just e2e <artifact>` | `tools/verify/e2e_ternary.sh <artifact>` | 端到端一致性矩阵 |
-| `just bench <artifact> [suite]` | `tools/bench/bench.sh <artifact> [suite]` | 标准化跑分（语料/重复/预热钉死）|
-| `just pack PQ2_0` | `tools/pack.py build <out>` | 打包三元制品（自动挑出带 numpy 的解释器）|
-| `just pack-check PQ2_0` | `tools/pack.py check` | 打包前自检：几何 + 解码 + 字节往返，只读 |
-| `just from-scratch PQ2_0` | — | **干净检出一条命令走完：补丁 → 编译 → 测试 → 打包** |
-| `just all <artifact>` | — | 依赖 → 门禁 → 构建 → ctest → oracle → e2e |
-
-两条"一条命令走完"的路径，区别只在起点：
-
-- **已有编译好的树**：`just all <artifact>` —— 依赖自检 → 代码门禁 → 构建 → ctest → 旋转 oracle → 端到端矩阵。
-- **干净检出**（`git clone` 出来的 v1.2.0，什么改动都还没落）：`just from-scratch PQ2_0` ——
-  补丁 → 编译 → 测试 → 打包三元制品。它先跑 `patch-apply`，所以不需要手工覆盖文件。
-
-打包器要真读张量，而发行版 `python3` 没有 numpy。`pack` / `pack-check` 会自己挑一个能用的解释器
-（`PYTHON` → 发行版 `python3` → `NINFER_TERNARY_PYTHON_FALLBACK`，本机是 `/tmp/venv-torch/bin/python`），
-挑不到就以退出码 3 收场并说明补救办法，不会装完 20 GiB 模板才抛 traceback。
+| `Ternary-Bonsai-2-27B-PQ2_0.ninfer` | 10,533,732,876 B | 2 bit 权码，精度更高、解码更快 |
+| `Ternary-Bonsai-2-27B-PTQ1_0.ninfer` | 9,274,212,876 B | 三进制 + 高位平面，更省空间 |
 
 ---
 
-## 仓里有什么
+## 跑推理
 
-```
-justfile                                 ← 全部操作入口（`just` / `just config` / `just --list`）
-patches/
-  README-改动说明.md                     ← 改动清单、与上游的刻意差异、重建与验证步骤（先读这个）
-  manifest.json                          ← 目标提交 + 逐文件上游/改动后 sha256
-  0001-ternary-port-on-ninfer-4090.patch ← 统一 diff（仅供审阅）
-  changed-files/                         ← 整文件快照，覆盖即可生效（45 个文件：新增 14 / 修改 31）
-tools/
-  bench/
-    bench.sh                             ← 标准化跑分：语料/重复/预热/分块钉死，产出 tidy CSV + 环境清单
-    README.md                            ← suite 含义、输出布局、与 CLI 口径的差异
-  pack.py                                ← GGUF（Bonsai 2 27B）→ 三元 .ninfer 打包器
-                                           （模板必须同时是 groupwise-int **且容器 v2**，见 patches/README §D）
-  MAPPING.json                           ← 逐张量映射规格（权威）
-  _bootstrap.py                          ← 统一的 ninfer 源码树定位（NINFER_ROOT）
-  _ternary_ref.py                        ← 三元解码器的唯一实现（从 pack.py 再导出）
-  verify/
-    run_rotation_oracle.sh               ← 一键：编译旋转 harness → 真机跑 → numpy oracle 比对
-    build.sh / loadtest.sh / gentest.sh  ← Linux 构建与探针（替代原包的 .cmd）
-    install_deps_rocky10.sh              ← Rocky Linux 10 依赖安装与自检（check / install）
-    e2e_ternary.sh                       ← 端到端一致性：内核路径 × prefill 分块 × MTP，带负控
-    check_{payload_order,row_order,signs,assembly,embedding}.py
-    oracle_rot.py / gemm_oracle.py / list_objects.py
-    harness/{rot_test.cu,gemm_test.cu}   ← 编译引擎同一份真代码的独立 nvcc 测试台
-src/ninfer_ternary/                       ← 应用 / 状态检查 / 自检 / 快照导出 的 CLI
-tests/                                   ← 20 个用例（含负控；只用临时目录与仓内快照，不依赖机器状态）
-docs/移植报告-ninfer-4090.md             ← 判定依据 + 实测证据 + 未验证部分
-docs/权重档案与容量规划.md               ← weights_id 改变了什么：逐条容量查询对照 + 配对实测 + 边界
-docs/依赖安装-RockyLinux10.md            ← 缺失系统库清单、安装命令、版本校验与备选方案
-```
+命令行单卡：
+
+    ninfer /data/Ternary-Bonsai-2-27B-ninfer/Ternary-Bonsai-2-27B-PQ2_0.ninfer \
+      --prompt "17 * 23 等于多少？" --max-context 4096 --max-new 256
+
+起服务并请求：
+
+    ninfer-serve /data/Ternary-Bonsai-2-27B-ninfer/Ternary-Bonsai-2-27B-PQ2_0.ninfer \
+      --host 127.0.0.1 --port 8080 --max-context 8192
+
+    curl http://127.0.0.1:8080/v1/chat/completions \
+      -H 'Content-Type: application/json' \
+      -d '{"model":"qwen3.8-27b","messages":[{"role":"user","content":"你好"}]}'
+
+常用的几组参数（完整列表见 `--help`）：
+
+| 参数 | 作用 |
+|---|---|
+| `--max-context` / `--prefill-chunk` | 上下文长度与预填充分块（决定显存里的工作区大小）|
+| `--kv-dtype bf16\|int8\|rk8v4\|rk4v4\|rk4v4-e8\|rk2v4-e8` | KV 缓存精度，越小越省显存 |
+| `--spec mtp --draft-tokens 4` | MTP 投机解码，输出与不开投机逐字节一致 |
+| `--no-cuda-graph` | 关掉 CUDA Graph（排查问题或显存吃紧时用）|
+
+本机（RTX 4090，PQ2_0）实测：prefill 512 token **267.2 ± 18.4 t/s**，解码 **50.8 ± 4.3 t/s**。
+跑分脚本与口径见 [tools/bench/README.md](tools/bench/README.md)。
 
 ---
 
-## 本次实际产出的制品
+## 常见问题
 
-用 `/data/Ternary-Bonsai-2-27B-gguf` 与钉在 v2 修订版 `dc370fb6295a` 的模板转出（约 19 GiB）：
+**装完 `ninfer` 报"找不到引擎可执行文件"。**
+这次安装是"只装 Python 侧"的（`NINFER_TERNARY_SKIP_BUILD=1`），wheel 里没有引擎。
+用 `just tool-install` 重装；或把 `NINFER_ENGINE_BIN` 指向已有的构建产物目录。
 
-```text
-/data/Ternary-Bonsai-2-27B-ninfer/
-  Ternary-Bonsai-2-27B-PQ2_0.ninfer    10,533,732,876 B = 9.810 GiB   decode 52.3 tok/s
-  Ternary-Bonsai-2-27B-PTQ1_0.ninfer    9,274,212,876 B = 8.637 GiB   decode 15.8 tok/s
-```
+**没有 CUDA 工具链，只想要转换器。**
+`just tool-install-light`（即 `NINFER_TERNARY_SKIP_BUILD=1 uv tool install --force .`）。
+这种安装没有随包的上游制品模块，转换时要用 `NINFER_ROOT=<ninfer 检出>` 指一个过去。
 
-两个都能被引擎装载并答对 `17 * 23`。**本仓不收录这些制品**（由权重派生），重建步骤见
-[patches/README-改动说明.md](patches/README-改动说明.md) §D。
+**模板从哪里来？**
+模板是 qwen3.8-27b 的 **groupwise-int** ninfer 制品，与目标制品同为容器 v2。转换器会先读它的
+`identity.weights_id` 校验，不是 `groupwise-int` 会直接拒绝并说明原因 —— 用成别家的量化（例如
+nvfp4）会在后面以张量名对不上的形式失败。
+
+**上游仓库在内网拉不到。**
+`NINFER_TERNARY_TARGET_REPO=<镜像地址或本地检出> uv tool install --force .`。
+
+**占多少显存？怎么估算？**
+工作区容量随 `min(max_context, prefill_chunk)` 线性增长，与制品档案无关；实测与推导见
+[权重档案与容量规划](docs/权重档案与容量规划.md)。
 
 ---
 
-## 验证状态（本机实测）
+## 在仓库里开发
+
+仓根的 `justfile` 是全部入口。`just` 列出配方，`just config` 打印它解析出来的路径。
+
+    just check          # ruff / mypy / pytest
+    just deps           # 构建依赖自检
+    just build          # 增量构建 sm_89（just build 86 编 sm_86）
+    just build-tests && just ctest
+    just build-engine   # 拉上游 -> 打补丁 -> 自检 -> 编译，临时树自动清理
+    just oracle         # 旋转内核 vs numpy FP64
+    just e2e <制品>     # 端到端一致性矩阵
+    just bench <制品>   # 标准化跑分
+    just pack PQ2_0     # 打包三元制品
+    just clean          # 清掉构建目录与临时目录
+
+补丁侧的子命令（`manifest` / `status` / `apply` / `check` / `export`）走
+`uv run python -m ninfer_ternary`，不随 `uv tool install` 安装 —— 它们只在开发与验证时需要。
+
+### 仓里有什么
+
+    patches/            45 个文件的整文件快照 + 清单摘要（改动清单见 patches/README-改动说明.md）
+    tools/pack.py       GGUF -> .ninfer 打包器（ninfer-convert 的本体）
+    tools/verify/       oracle、端到端矩阵、依赖安装、落地自检
+    tools/bench/        固定语料/重复/热身的标准化跑分
+    build_backend.py    uv tool install 时拉取、打补丁、编译、清理
+    docs/               移植报告、权重档案、依赖安装、本工具安装
+
+主要文档：
+
+| 文档 | 内容 |
+|---|---|
+| [把本仓当工具用](docs/uv-工具安装.md) | `uv tool install` 全流程、环境变量、离线安装、排错 |
+| [移植报告](docs/移植报告-ninfer-4090.md) | 判定依据、实测证据、未验证部分 |
+| [权重档案与容量规划](docs/权重档案与容量规划.md) | 制品档案改变了什么、容量查询逐条对照 |
+| [依赖安装](docs/依赖安装-RockyLinux10.md) | Rocky Linux 10 缺失库清单与安装命令 |
+| [改动说明](patches/README-改动说明.md) | 45 个文件的改动清单、与上游的刻意差异 |
+
+---
+
+## 验证状态（本机实测，RTX 4090 / Rocky Linux 10）
 
 | 项 | 结果 |
 |---|---|
-| **完整构建 sm_89 / sm_86** | **各 exit 0**。三元内核在两个架构下都有原生 cubin，架构支持未被收窄（§4.5）|
-| **引擎自带测试 `ctest`** | **84/84 通过**（0 失败；5 项 `real` 用例按设计跳过）。本补丁此前造成的 2 项失败已修复（§4.9）|
-| **端到端（真权重 + RTX 4090）** | 两种格式都装载并答对 `17 * 23` → **391**；`MMA=1` 与 `MMA=0` **逐字节一致**；关掉折叠基旋转即崩坏（§4.7）|
-| **一致性矩阵（MMA/SIMT × 分块 × 两种格式）** | 10 次正控全部落在同一个 158 token 摘要上；负控（关掉旋转）分离。`e2e_ternary.sh` 两个制品都 PASS（§4.8）|
-| **MTP 投机** | 输出与无投机**逐字节一致**；接受率 74–77%（draft 4）、58.5%（draft 8）（§4.8）|
-| **KV 量化** | `bf16 / int8 / rk8v4 / rk4v4 / rk4v4-e8 / rk2v4-e8` 六种都能装载跑完 pp512/tg128（§4.8）|
-| **长上下文一致性** | 2685 与 11043 token 的 prompt，MMA/SIMT × 分块共 10 次全部同摘要，答案正确；三元 MMA prefill 约为 SIMT 的 **4.2~4.4 倍**（§4.8）|
-| **并发服务** | `ninfer-serve --max-concurrency 4`，8 个并发请求 8/8 **200**，输出逐字节一致（§4.8）|
-| 折叠基旋转内核（真机 + numpy oracle）| **6/6 PASS**，负控全部分离（正确的 rel_l2 ≈ 2.2e-3，负控 ≥ 0.97）|
-| `tools/artifact` 三元几何 vs 引擎 | `[248320,5120]` → PTQ1_0 278,118,400 B / PQ2_0 337,715,200 B，与引擎侧注释逐字节一致 |
-| Python 包 | 20 用例通过（正负控只用临时目录与仓内快照）；`ruff check` / `ruff format --check` / `mypy` 全绿 |
-| 独立 harness 编译 | `rot_test.cu` / `gemm_test.cu` 均零错误零警告（`gemm_test.cu` 原本编译不过，见下）|
-| **干净检出可复现** | `git clone` v1.2.0 → `patch-apply` 写入 45 个文件 → `diff -r` 与已应用检出**无差异**；干净检出上 `BUILD_TESTING=ON` 全量重编 **726/726 exit 0**、`ctest` **84/84**（§4.10）|
-| **标准化跑分（`tools/bench/bench.sh`）** | PQ2_0 `standard`：pp512 **267.2±18.4**、pp2048 **303.4±5.6**、tg128 **50.8±4.3** t/s。CSV 里 `weights_id` 读回 **`folded-ternary`**，`workspace_capacity_bytes` = **180,953,088**（= 修复前后两个二进制算出的同一个 172.57 MiB）|
-
----
-
-## 适配过程中发现并修掉的上游问题
-
-原包的 `tools/` 是"当时工作树的快照"，与 `patches/` 并不同步。核过之后有四处会直接导致验证失败或结论错误：
-
-1. `harness/gemm_test.cu` **编译不过** —— 调用 `ternary_rowsplit_gemm_kernel` 时少传后期新增的 `out_row_stride`。
-2. `verify/oracle_rot.py` 按**行主序**读 token 主序缓冲：T=1 的 3 个用例全绿、**T>1 的 3 个全 FAIL**。改正后 6/6 通过。
-3. `verify/check_embedding.py` 同一个问题，且注释写反（"row-major"）。
-4. `harness/rot_test.cu` 里 `return prop.name;` 返回局部变量地址（未定义行为）。
-
-另外补上了原包缺失的 `tools/_ternary_ref.py`（原 `check_*.py` 引用了它，包里却没有）。
-
----
-
-## 本补丁自己引入过的回归（已修复）
-
-改动包不该留下红色的上游测试。这一条是本补丁**自己**造成的，与上游无关，记录在此以免被当成
-"上游本来就这样"：
-
-**症状**：`ninfer_gdn_input_proj_conv_snapshot_test` 与 `ninfer_gdn_input_proj_conv_record_test` 报
-`workspace query/execution high-water mismatch`。
-
-**根因**：折叠三元的父权重与 Q4/Q5 共用同一套**行几何**（q/k 2048、v 6144），于是两条按形状索引的
-ops 容量查询无法区分它们。最初的移植选择"让两条查询都按三元的最坏情况预留"，代价是 groupwise-int
-制品也被多留一块激活缓冲 —— 而那两个测试断言 `peak_used() == 查询值`，多留即失败。
-
-**修法**（§4.9 有完整清单）：给折叠三元一档独立的 `WeightsProfile::FoldedTernary`，让容量查询按档
-分派；两条 ops 查询恢复上游的精确语义，三元另开两条专属查询。**制品因此必须重打** —— 它的
-`identity.weights_id` 要从 `groupwise-int` 改成 `folded-ternary`，否则引擎按 groupwise 规划而三元
-执行时还要多要一块旋转缓冲，那是**少留**，不是保守的多留。
-
-**修完 `ctest` 就绿了，但坑还没填完。** 第一版只改了**规划期**的容量查询，`ctest` 回到 84/84，
-而 `--spec mtp` 全线崩在 `std::bad_alloc` —— `ctest` 覆盖不到那条路径。真正的原因在**运行期**：
-`Variant::gdn_input_projection_record` 会开一块**借来的叶子竞技场**，容量取自
-`gdn_record_workspace_bytes()`；而上游那条 record 容量查询对 Q4/Q5 返回 0，于是叶子只有 1 字节，
-折叠三元的算子却要在里面分配 51200 字节的旋转缓冲。这套「规划期查询 + 运行期叶子」的双份需求，
-只改一半就会以 `std::bad_alloc` 的形式在图构建时炸掉。完整过程见 §4.9。
-
----
-
-## 环境变量
-
-| 变量 | 用于 |
-|---|---|
-| `NINFER_ROOT` | 指向 ninfer 源码树（`tools/` 下的脚本都需要）|
-| `NINFER_BUILD_ROOT` / `NINFER_ARCH` / `NINFER_JOBS` | `build.sh` |
-| `NINFER_CLI` / `NINFER_LOG_DIR` | `loadtest.sh`、`gentest.sh` |
-| `NINFER_TERNARY_GGUF` / `NINFER_TERNARY_TEMPLATE` | `pack.py` 的输入 |
-| `NINFER_TERNARY_HADAMARD` / `_GDN_PERM` / `_MMA` / `_DUMP_EMBED` / `_TRACE_EMBED` | 引擎运行时开关，见 [patches/README-改动说明.md](patches/README-改动说明.md) §G |
+| 构建 | sm_89 与 sm_86 各 exit 0，三元内核在两个架构下都有原生 cubin |
+| 引擎自带测试 | `ctest` 84/84 通过 |
+| 端到端 | 两种格式都装载并答对 `17 * 23`；`MMA=1` 与 `MMA=0` 逐字节一致；关掉折叠基旋转即崩坏 |
+| 一致性矩阵 | 内核路径 × 分块 × 两种格式，10 次正控同摘要，负控分离 |
+| MTP 投机 | 输出与无投机逐字节一致，接受率 74-77%（draft 4）|
+| 长上下文 | 2685 与 11043 token 的 prompt 全部同摘要；三元 MMA prefill 约为 SIMT 的 4.2-4.4 倍 |
+| 干净检出可复现 | `git clone` v1.2.0 -> 打补丁 -> `diff -r` 无差异；全量重编 726/726 exit 0，`ctest` 84/84 |
+| **`uv tool install` 一条命令** | 现场拉取 v1.2.0 -> 落地 45 文件 -> 自检 20/20 -> 编译 -> 打成 223 MiB wheel -> **删除全部临时树**，全程 **6 分 32 秒**；装好的 `ninfer` 直接答对 `17 * 23` |
 
 ---
 
 ## 许可与来源
 
-本仓是 **NInfer（Apache-2.0）** 派生作品的三元适配层：引擎改动来自 `ninfer-ada-ternary`（Apache-2.0），
-目标树为 `ninfer-4090`（Apache-2.0）。模型权重不在本仓分发，其权利归原作者（PrismML / Qwen 体系）所有。
+本仓是 **Apache-2.0** 许可，见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。
+
+它是 NInfer（Apache-2.0）派生作品的适配层：三元改动来自
+[ninfer-ada-ternary](https://www.modelscope.cn/shensanshu/ninfer-ada-ternary.git)，
+目标树是 [ninfer-4090](https://github.com/UDPSendToFailed/ninfer-4090) v1.2.0
+（提交 `5c60b7c9`）。上游只支持 sm_86 / sm_89，本补丁没有收窄或放宽这个范围。
+
+模型权重不在本仓分发，其权利归原作者（PrismML / Qwen 体系）所有。

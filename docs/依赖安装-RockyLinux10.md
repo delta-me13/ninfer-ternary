@@ -149,6 +149,22 @@ tools/verify/build.sh incremental -- -DNINFER_BUILD_APPS=ON
 
 构建阶段除系统包外还依赖网络（xgrammar 拉取）与 WebUI 资源下载（`NINFER_ENABLE_UI` 默认 ON，可从 GitHub release 拉取；离线时 CMake 会告警并退化为 UI stub）。
 
+### 7.1 用 uv tool install 安装时
+
+`uv tool install` 走的正是这条构建链路 —— 它在 wheel 构建阶段现场克隆上游并编译，所以上面的
+5 个系统包一个都不能少，此外还需要：
+
+| 额外依赖 | 用途 | 备注 |
+|---|---|---|
+| `uv` | 安装器 | 官方脚本一行装好，见下 |
+| CUDA Toolkit（含 `nvcc`） | 编译三元内核 | 需与本机驱动匹配 |
+| `git` | 拉取上游与 xgrammar | 见 [把本仓当工具用](uv-工具安装.md) |
+
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+
+网络不可达时，可以先在一台联网机器上 `uv build --wheel`，再把 wheel 拷到目标机安装；
+也可以用 `NINFER_TERNARY_ENABLE_UI=0` 跳过 WebUI 资源下载。
+
 ## 8. 未验证项
 
 - 第 5 节的事务规模来自 `dnf install --assumeno` 解析，未实际执行安装；包版本与仓库归属来自 `dnf list --available` 与 `dnf repoquery`。

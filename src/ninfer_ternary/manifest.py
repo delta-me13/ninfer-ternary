@@ -13,6 +13,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from . import assets
+
 MANIFEST_NAME = "manifest.json"
 CHANGED_FILES_DIR = "changed-files"
 #: 聚合 diff 的文件名。它只供审阅，但审阅者会按名字引用它，所以名字固定在这里。
@@ -172,33 +174,42 @@ def repo_root() -> Path:
     """返回本仓根目录。
 
     Returns:
-        本仓根目录的绝对路径。
+        本仓根目录的绝对路径；安装形态下该路径无意义，补丁数据请走下面的助手。
     """
-    return Path(__file__).resolve().parents[2]
+    return assets.repo_root()
+
+
+def patches_root() -> Path:
+    """返回补丁数据目录。
+
+    Returns:
+        补丁目录路径：安装形态取随包副本，仓库形态取仓库里的 patches/。
+    """
+    return assets.patches_root()
 
 
 def default_manifest_path() -> Path:
-    """返回本仓内置补丁清单的路径。
+    """返回内置补丁清单的路径。
 
     Returns:
-        patches/manifest.json 的绝对路径。
+        manifest.json 的绝对路径。
     """
-    return repo_root() / "patches" / MANIFEST_NAME
+    return patches_root() / MANIFEST_NAME
 
 
 def changed_files_root() -> Path:
-    """返回本仓补丁文件快照目录。
+    """返回补丁文件快照目录。
 
     Returns:
-        patches/changed-files 的绝对路径。
+        changed-files 的绝对路径。
     """
-    return repo_root() / "patches" / CHANGED_FILES_DIR
+    return patches_root() / CHANGED_FILES_DIR
 
 
 def default_patch_path() -> Path:
-    """返回本仓聚合 diff 的路径。
+    """返回聚合 diff 的路径。
 
     Returns:
         patches/ 下聚合补丁的绝对路径。
     """
-    return repo_root() / "patches" / AGGREGATE_PATCH_NAME
+    return patches_root() / AGGREGATE_PATCH_NAME
