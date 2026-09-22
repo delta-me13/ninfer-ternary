@@ -58,7 +58,7 @@ _SDIST_EXCLUDES = frozenset(
         ".git",
         ".venv",
         ".agents",
-        "bm2out",
+        "out",
         "dist",
         "__pycache__",
         ".pytest_cache",
