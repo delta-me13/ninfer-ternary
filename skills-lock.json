@@ -19,6 +19,12 @@
       "skillPath": "skills/code-polish/SKILL.md",
       "computedHash": "69e11497064bc87d6af0eaca3a6291540c23137e03fa886399c61e19faeff8ed"
     },
+    "docstring-generator": {
+      "source": "espennilsen/pi",
+      "sourceType": "github",
+      "skillPath": "skills/docstring-generator/SKILL.md",
+      "computedHash": "9266146200e40b7aa01c2cf672696394563426ef0c230600e3b5de8a1a0a9992"
+    },
     "logging-best-practices": {
       "source": "boristane/agent-skills",
       "sourceType": "github",
