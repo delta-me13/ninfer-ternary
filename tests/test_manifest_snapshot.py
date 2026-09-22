@@ -11,13 +11,13 @@ from pathlib import Path
 
 import pytest
 
-from nifer_ternary.manifest import (
+from ninfer_ternary.manifest import (
     PatchManifest,
     changed_files_root,
     default_manifest_path,
     default_patch_path,
 )
-from nifer_ternary.patchset import sha256_file
+from ninfer_ternary.patchset import sha256_file
 
 SNAPSHOT = changed_files_root()
 

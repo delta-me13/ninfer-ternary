@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from nifer_ternary.manifest import (
+from ninfer_ternary.manifest import (
     ManifestError,
     PatchManifest,
     changed_files_root,

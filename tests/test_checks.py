@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from nifer_ternary.checks import check_all
-from nifer_ternary.manifest import changed_files_root
+from ninfer_ternary.checks import check_all
+from ninfer_ternary.manifest import changed_files_root
 
 #: 仓内"已打补丁"快照，同时充当正控树的素材来源。
 SNAPSHOT = changed_files_root()

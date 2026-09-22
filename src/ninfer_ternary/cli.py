@@ -20,7 +20,7 @@ from .manifest import (
 )
 from .patchset import FileState, PatchError, apply_patch_set, inspect
 
-_LOGGER = logging.getLogger("nifer_ternary")
+_LOGGER = logging.getLogger("ninfer_ternary")
 
 
 def _build_parser() -> argparse.ArgumentParser:

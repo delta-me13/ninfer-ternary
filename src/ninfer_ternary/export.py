@@ -21,7 +21,7 @@ from typing import Any
 from .manifest import ManifestError, PatchManifest
 from .patchset import sha256_file
 
-_LOGGER = logging.getLogger("nifer_ternary")
+_LOGGER = logging.getLogger("ninfer_ternary")
 
 
 class ExportError(RuntimeError):

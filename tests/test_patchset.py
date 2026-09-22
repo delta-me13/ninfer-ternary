@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from nifer_ternary.manifest import FileEntry, PatchManifest
-from nifer_ternary.patchset import (
+from ninfer_ternary.manifest import FileEntry, PatchManifest
+from ninfer_ternary.patchset import (
     FileState,
     PatchError,
     apply_patch_set,
