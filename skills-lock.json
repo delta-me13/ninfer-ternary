@@ -19,11 +19,11 @@
       "skillPath": "skills/code-polish/SKILL.md",
       "computedHash": "69e11497064bc87d6af0eaca3a6291540c23137e03fa886399c61e19faeff8ed"
     },
-    "docstring-generator": {
-      "source": "espennilsen/pi",
+    "docstring-generator-skill": {
+      "source": "darellchua2/civiltekk-opencode-claude-skills",
       "sourceType": "github",
-      "skillPath": "skills/docstring-generator/SKILL.md",
-      "computedHash": "9266146200e40b7aa01c2cf672696394563426ef0c230600e3b5de8a1a0a9992"
+      "skillPath": "skills/docstring-generator-skill/SKILL.md",
+      "computedHash": "2848b8e2fb263ed63e9c4b3f25ef04ac6dee906f9a2c480fdef2e6899e8e8e23"
     },
     "logging-best-practices": {
       "source": "boristane/agent-skills",
