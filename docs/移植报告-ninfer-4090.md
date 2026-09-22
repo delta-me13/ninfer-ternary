@@ -291,13 +291,49 @@ error: CUDA Graph executable update failed: cudaErrorGraphExecUpdateFailure (upd
 六种 KV 存储都能在折叠三元制品上装载并跑完 pp512/tg128。注意 `ninfer_bench` 的 `--kv-dtype` 取值集合
 是 `bf16 | int8 | rk8v4 | rk4v4 | rk4v4-e8 | rk2v4-e8`，与 CLI 的 `--kv-dtype` 命名不同（`e8` 不是合法值）。
 
+#### 长上下文一致性
+
+把 prompt 拉到 2685 与 11043 token，扫 prefill 分块与内核路径：
+
+| prompt token | 分块 | MMA=1 摘要 | MMA=0 摘要 | prefill（MMA / SIMT）|
+|---|---|---|---|---|
+| 2685 | 512 | `e648b9c1c25b` | `e648b9c1c25b` | 262.2 / 48.8 t/s |
+| 2685 | 1024 | `e648b9c1c25b` | `e648b9c1c25b` | 274.8 / 60.1 t/s |
+| 2685 | 2048 | `e648b9c1c25b` | `e648b9c1c25b` | 287.3 / 66.1 t/s |
+| 11043 | 1024 | `41907670335c` | `41907670335c` | 282.1 / 62.8 t/s |
+| 11043 | 2048 | `41907670335c` | `41907670335c` | 282.6 / 71.6 t/s |
+
+两条 prompt 都要求从长上下文里取回一个事实，答案分别正确：2685 token 那条答
+"The fox jumped over the lazy dog."，11043 token 那条答 "The dog is lazy."。
+也就是说 1 到 11 个 prefill 分块之间的切换、以及张量核与 SIMT 两条路径之间，都没有可观测差异。
+
+顺带得到一个量化结论：**三元 MMA 路径的 prefill 是 SIMT 的约 4.2~4.4 倍**（282 vs 63~72 t/s）；
+decode 端反而只有约 +8%（52.3 vs 48.0 t/s），因为 decode 是 T=1 的带宽受限 GEMV。
+
+越界时行为也是明确的：prompt 超过 `--max-context` 时引擎报
+`error: prepared prompt exceeds Engine context capacity` 并以非零码退出，而不是静默截断。
+
+#### 并发服务
+
+`ninfer-serve --max-concurrency 4`，8 个请求同时到达（4 个槽位，实际 decode 批 3.76）：
+
+| 项 | 结果 |
+|---|---|
+| HTTP 状态 | 8/8 **200** |
+| 生成内容 | 8 条**逐字节一致**（摘要 `0fd9b946f31b`）|
+| 单请求时延 | TTFT 381~2669 ms，wall 2.34~3.84 s（48 token）|
+| decode 吞吐 | 每请求约 41 t/s |
+
+并发下贪心输出仍然一致，说明折叠三元路径在批量 decode 槽位里也是确定的。
+
 ## 5. 未能验证的部分（诚实交代）
 
 - **PPL / 困惑度没有测**，而且用本仓现有工具测不了：CLI 没有 logprob / score 选项，`eval/` 是
   EvalScope 驱动的任务评测（IFBench / AIME / GPQA），不产出困惑度；要测需要另写一个打分入口。
   原先的 PPL 6.445 来自 Ada / Windows 线，**不能直接外推到本线**。
-- **长上下文没有压到极限**。§4.8 的一致性矩阵在 `--max-context 2048`、158 token 生成上成立；
-  32k / 128k 量级的 prefill 与并发批（`--max-concurrency`）下的逐字节一致性未覆盖。
+- **上下文只压到 11k token**。§4.8 在 2685 与 11043 token 的 prefill 上逐字节一致，并发 4 槽也一致；
+  但 README 里那套 400k 上下文的配置（`rk4v4-e8` 等量化 KV + 长程 prefill）没有复现，
+  128k 量级的 prefill 与 `--max-concurrency > 4` 未覆盖。
 - **引擎自带测试有 2 项失败，且是本补丁引起的**（完整构建本身已通过，见 §4.5）：
   `ninfer_gdn_input_proj_conv_snapshot_test` 与 `ninfer_gdn_input_proj_conv_record_test` 断言
   "工作区查询值 == 执行高水位"，而本补丁让这两个容量查询对**非三元**父权重也按三元规模预留。

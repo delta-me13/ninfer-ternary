@@ -101,6 +101,8 @@ docs/依赖安装-RockyLinux10.md            ← 缺失系统库清单、安装�
 | **一致性矩阵（MMA/SIMT × 分块 × 两种格式）** | 10 次正控全部落在同一个 158 token 摘要上；负控（关掉旋转）分离。`e2e_ternary.sh` 两个制品都 PASS（§4.8）|
 | **MTP 投机** | 输出与无投机**逐字节一致**；接受率 74–77%（draft 4）、58.5%（draft 8）（§4.8）|
 | **KV 量化** | `bf16 / int8 / rk8v4 / rk4v4 / rk4v4-e8 / rk2v4-e8` 六种都能装载跑完 pp512/tg128（§4.8）|
+| **长上下文一致性** | 2685 与 11043 token 的 prompt，MMA/SIMT × 分块共 10 次全部同摘要，答案正确；三元 MMA prefill 约为 SIMT 的 **4.2~4.4 倍**（§4.8）|
+| **并发服务** | `ninfer-serve --max-concurrency 4`，8 个并发请求 8/8 **200**，输出逐字节一致（§4.8）|
 | 折叠基旋转内核（真机 + numpy oracle）| **6/6 PASS**，负控全部分离（正确的 rel_l2 ≈ 2.2e-3，负控 ≥ 0.97）|
 | `tools/artifact` 三元几何 vs 引擎 | `[248320,5120]` → PTQ1_0 278,118,400 B / PQ2_0 337,715,200 B，与引擎侧注释逐字节一致 |
 | Python 包 | 14 用例通过（正负控只用临时目录与仓内快照）；`ruff check` / `ruff format --check` / `mypy` 全绿 |
