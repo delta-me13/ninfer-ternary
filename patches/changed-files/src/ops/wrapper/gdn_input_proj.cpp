@@ -447,6 +447,8 @@ bool is_ternary_parent(QType qtype) noexcept {
 
 // 本 target 上 GDN 输入投影恒定消费 5120 宽的隐藏态。
 constexpr std::int32_t kFoldedGdnHidden = 5120;
+// q 2048 + k 2048 + v 6144：折叠三元与 Q4/Q5 共用这一行几何，也正因如此两条容量查询必须分开。
+constexpr std::int32_t kFoldedGdnChannels = 10240;
 
 void require_ternary_split_parents(const Weight& qk_weight, const Weight& value_z_weight,
                                    std::int32_t qk_rows, std::int32_t parent_rows,
@@ -617,15 +619,26 @@ std::size_t gdn_input_proj_conv_snapshot_workspace_capacity_bytes(
         (void)resolve_w8_conv_plan(max_width, 1);
         if (max_width >= 17) { largest_materialized_width = max_width; }
     }
-    // 折叠三元父权重永不走融合调度，因此它们总是既需要投影工作区、又需要一块 [hidden, token]
-    // 的旋转缓冲，这里把两者都预留。该查询不携带权重档案（它按行几何索引，而三元父权重与
-    // Q4/Q5 共享同一行几何），所以预留是无条件的；对 groupwise-int 制品而言，代价只是叶子
-    // 竞技场大一点。
+    if (largest_materialized_width == 0) { return 0; }
     WorkspaceLayoutBuilder layout;
-    (void)allocate_projected_workspace(
-        layout, channels, largest_materialized_width == 0 ? max_width : largest_materialized_width);
-    return layout.peak_bytes(1) +
-           detail::ternary_rotation_workspace_bytes(kFoldedGdnHidden, batch_size * max_width);
+    (void)allocate_projected_workspace(layout, channels, largest_materialized_width);
+    return layout.peak_bytes(1);
+}
+
+std::size_t gdn_input_proj_conv_snapshot_folded_workspace_capacity_bytes(
+    std::int32_t query_rows, std::int32_t key_rows, std::int32_t value_rows,
+    std::int32_t batch_size, std::int32_t min_width, std::int32_t max_width) {
+    const std::int32_t channels = query_rows + key_rows + value_rows;
+    if (channels != kFoldedGdnChannels) {
+        throw std::invalid_argument(
+            "gdn_input_proj_conv_snapshot folded workspace: unregistered shape");
+    }
+    require_snapshot_capacity_domain(batch_size, min_width, max_width);
+    // 折叠父权重一律走"先投影进 scratch、再做卷积"的组合路线，所以两块缓冲都在同一个作用域里
+    // 存活：投影平面之后是激活旋转缓冲。列数取查询区间的上端，因为两者都随列数单调。
+    const std::int32_t columns = batch_size > 1 ? batch_size * max_width : max_width;
+    return composed_snapshot_capacity(
+        channels, columns, detail::ternary_rotation_workspace_bytes(kFoldedGdnHidden, columns));
 }
 
 std::size_t gdn_input_proj_conv_record_workspace_capacity_bytes(
@@ -644,9 +657,22 @@ std::size_t gdn_input_proj_conv_record_workspace_capacity_bytes(
         (void)resolve_w8_conv_plan(min_width, batch_size);
         (void)resolve_w8_conv_plan(max_width, batch_size);
     }
-    // record 路径直接投影进调用方的 conv record，唯一需要的临时字节就是折叠三元的旋转缓冲
-    // （见上面的 snapshot 容量查询）。
-    return detail::ternary_rotation_workspace_bytes(kFoldedGdnHidden, batch_size * max_width);
+    return 0;
+}
+
+std::size_t gdn_input_proj_conv_record_folded_workspace_capacity_bytes(
+    std::int32_t query_rows, std::int32_t key_rows, std::int32_t value_rows,
+    std::int32_t batch_size, std::int32_t min_width, std::int32_t max_width) {
+    const std::int32_t channels = query_rows + key_rows + value_rows;
+    if (channels != kFoldedGdnChannels) {
+        throw std::invalid_argument(
+            "gdn_input_proj_conv_record folded workspace: unregistered shape");
+    }
+    require_record_capacity_domain(batch_size, min_width, max_width);
+    // 投影本身写进调用方的 conv record，所以唯一需要的临时字节就是折叠 GEMM 的激活旋转缓冲，
+    // 而它按展平后的列数（B*T）取。
+    const std::int32_t columns = batch_size > 1 ? batch_size * max_width : max_width;
+    return detail::ternary_rotation_workspace_bytes(kFoldedGdnHidden, columns);
 }
 
 void gdn_input_proj_conv_snapshot(const Tensor& x, const Weight& qk_weight,

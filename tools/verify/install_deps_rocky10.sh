@@ -15,6 +15,9 @@ mode="${1:-check}"
 pkgs_ffmpeg=(libavformat-free-devel libavcodec-free-devel libavutil-free-devel libswscale-free-devel)
 pkgs_tools=(cmake ninja-build pkgconf-pkg-config)
 pkgs_curl=(libcurl-devel)
+# just 只服务仓根的 justfile —— 它是脚本的"目录"，不是构建依赖。缺了它脚本照样能跑，但这个仓
+# 把 just 当作对外入口，所以这里按必需项检查。
+pkgs_just=(just)
 
 # pkg-config 模块名 -> 版本下限，取自 CMakeLists.txt
 pc_specs=("libavformat:60" "libavcodec:60" "libavutil:58" "libswscale:7" "libcurl:7.85")
@@ -23,7 +26,7 @@ verify() {
   local rc=0
   echo "--- 工具链"
   local tool
-  for tool in cmake ninja pkg-config nvcc g++; do
+  for tool in cmake ninja pkg-config nvcc g++ just; do
     if command -v "${tool}" >/dev/null 2>&1; then
       echo "  存在  ${tool}  $(command -v "${tool}")"
     else
@@ -90,7 +93,7 @@ fi
 # samba、tesseract 等与解码无关的桌面栈
 echo "=== 安装构建依赖 ==="
 dnf install -y --setopt=install_weak_deps=False \
-  "${pkgs_tools[@]}" "${pkgs_ffmpeg[@]}" "${pkgs_curl[@]}"
+  "${pkgs_tools[@]}" "${pkgs_ffmpeg[@]}" "${pkgs_curl[@]}" "${pkgs_just[@]}"
 
 echo "=== 安装后自检 ==="
 verify

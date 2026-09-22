@@ -97,6 +97,18 @@ void gdn_input_proj(const Tensor& x, const Weight& query_key_value_z_weight, Ten
     std::int32_t batch_size, std::int32_t min_width, std::int32_t max_width);
 
 /**
+ * Returns the transient capacity for the folded (rotated-basis) ternary two-parent snapshot form.
+ *
+ * The folded parents share Q4/Q5's row geometry, so the query above cannot describe them: they never
+ * take the fused projection+epilogue schedule and therefore always need both a [C,B*W] projected
+ * plane and a [5120,B*W] activation-rotation buffer. Splitting the query by profile keeps the fused
+ * query exact instead of padding it for a route its caller never takes.
+ */
+[[nodiscard]] std::size_t gdn_input_proj_conv_snapshot_folded_workspace_capacity_bytes(
+    std::int32_t query_rows, std::int32_t key_rows, std::int32_t value_rows,
+    std::int32_t batch_size, std::int32_t min_width, std::int32_t max_width);
+
+/**
  * Op: gdn_input_proj_conv_snapshot
  *
  * Math / indexing:
@@ -166,6 +178,17 @@ void gdn_input_proj_conv_snapshot(const Tensor& x, const Weight& query_key_value
  * projection writes directly to caller-owned conv_record.
  */
 [[nodiscard]] std::size_t gdn_input_proj_conv_record_workspace_capacity_bytes(
+    std::int32_t query_rows, std::int32_t key_rows, std::int32_t value_rows,
+    std::int32_t batch_size, std::int32_t min_width, std::int32_t max_width);
+
+/**
+ * Returns the transient capacity for the folded (rotated-basis) ternary two-parent record form.
+ *
+ * The projection still writes straight into the caller-owned conv_record, but the folded GEMM must
+ * first map the flattened [5120,B*T] activation into the rotated basis, and that scratch is not
+ * caller-owned.
+ */
+[[nodiscard]] std::size_t gdn_input_proj_conv_record_folded_workspace_capacity_bytes(
     std::int32_t query_rows, std::int32_t key_rows, std::int32_t value_rows,
     std::int32_t batch_size, std::int32_t min_width, std::int32_t max_width);
 

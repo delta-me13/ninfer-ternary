@@ -15,6 +15,8 @@ from typing import Any, Mapping
 
 MANIFEST_NAME = "manifest.json"
 CHANGED_FILES_DIR = "changed-files"
+#: 聚合 diff 的文件名。它只供审阅，但审阅者会按名字引用它，所以名字固定在这里。
+AGGREGATE_PATCH_NAME = "0001-ternary-port-on-ninfer-4090.patch"
 
 
 class ManifestError(ValueError):
@@ -191,3 +193,12 @@ def changed_files_root() -> Path:
         patches/changed-files 的绝对路径。
     """
     return repo_root() / "patches" / CHANGED_FILES_DIR
+
+
+def default_patch_path() -> Path:
+    """返回本仓聚合 diff 的路径。
+
+    Returns:
+        patches/ 下聚合补丁的绝对路径。
+    """
+    return repo_root() / "patches" / AGGREGATE_PATCH_NAME

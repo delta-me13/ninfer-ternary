@@ -71,6 +71,14 @@ GGUF = ""
 # converters in tools/convert/qwen3_8_27b/.
 TEMPLATE_SCHEMA = "groupwise-int"
 
+#: 产物制品声明的 weights_id。
+#:
+#: 模板必须是 groupwise-int（对象表按名字映射，融合命名的 nvfp4 表进不来），但产物不是：
+#: 折叠三元的行几何与 groupwise-int 完全相同，引擎在规划期只看得到形状，无法分辨两者对临时
+#: 字节的需求，只能靠 identity 分辨。沿用模板的 weights_id 会让折叠三元按 groupwise 的容量
+#: 规划，而它执行时还要多要一块激活旋转缓冲区 —— 那是一次缓冲区越界，不是一个保守的估计。
+OUTPUT_WEIGHTS_ID = "folded-ternary"
+
 _TEMPLATE_HELP = """\
 模板 schema 不对：pack.py 需要 **groupwise-int** 的 qwen3.8-27b 制品。
 (the template must be the groupwise-int packing, not nvfp4)
@@ -478,7 +486,8 @@ class Packer:
     def __init__(self, g: Gguf):
         self.g = g
         raw_identity, self.objects = load_template()
-        self.identity = ArtifactIdentity(raw_identity["model_id"], raw_identity["weights_id"])
+        # 模板身份只用来校验 schema；写进产物的身份必须声明折叠三元（见 OUTPUT_WEIGHTS_ID）。
+        self.identity = ArtifactIdentity(raw_identity["model_id"], OUTPUT_WEIGHTS_ID)
         self._by_name = {o["name"]: o for o in self.objects}
         self.kind = layer_kind(self.objects)
         self._signs = None

@@ -10,7 +10,14 @@ from typing import Sequence
 
 from . import __version__
 from .checks import check_all
-from .manifest import ManifestError, PatchManifest, changed_files_root, default_manifest_path
+from .export import ExportError, export_snapshot
+from .manifest import (
+    ManifestError,
+    PatchManifest,
+    changed_files_root,
+    default_manifest_path,
+    default_patch_path,
+)
 from .patchset import FileState, PatchError, apply_patch_set, inspect
 
 _LOGGER = logging.getLogger("nifer_ternary")
@@ -44,6 +51,17 @@ def _build_parser() -> argparse.ArgumentParser:
 
     check = sub.add_parser("check", help="对目标检出执行落地自检")
     check.add_argument("--repo", type=Path, required=True, help="ninfer 源码树根目录")
+
+    export_cmd = sub.add_parser("export", help="用检出内容刷新补丁快照、清单摘要与聚合 diff")
+    export_cmd.add_argument("--repo", type=Path, required=True, help="ninfer 源码树根目录")
+    export_cmd.add_argument("--patch", type=Path, default=None, help="聚合 diff 的输出路径")
+    export_cmd.add_argument(
+        "--add",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="把清单之外的改动纳入补丁包（可重复）",
+    )
     return parser
 
 
@@ -59,8 +77,19 @@ def _load(args: argparse.Namespace) -> PatchManifest:
     Raises:
         ManifestError: 清单缺失或结构不符。
     """
-    path = args.manifest if args.manifest is not None else default_manifest_path()
-    return PatchManifest.load(path)
+    return PatchManifest.load(_manifest_path(args))
+
+
+def _manifest_path(args: argparse.Namespace) -> Path:
+    """解析本次调用使用的补丁清单路径。
+
+    Args:
+        args: 解析后的命令行参数。
+
+    Returns:
+        清单文件路径。
+    """
+    return args.manifest if args.manifest is not None else default_manifest_path()
 
 
 def _cmd_manifest(manifest: PatchManifest) -> int:
@@ -129,6 +158,35 @@ def _cmd_apply(args: argparse.Namespace, manifest: PatchManifest) -> int:
     return 0
 
 
+def _cmd_export(args: argparse.Namespace, manifest: PatchManifest) -> int:
+    """用检出内容刷新补丁快照、清单摘要与聚合 diff。
+
+    Args:
+        args: 解析后的命令行参数。
+        manifest: 补丁清单。
+
+    Returns:
+        进程退出码；只有异常才会让它非零。清单之外的改动只是报告，不算失败 —— 那多半是本地
+        调试残留，把它当失败会让这条命令在本仓永远返回非零，反而没人再看它的输出。
+    """
+    snapshot = args.snapshot if args.snapshot is not None else changed_files_root()
+    patch_path = args.patch if args.patch is not None else default_patch_path()
+    result = export_snapshot(args.repo, _manifest_path(args), snapshot, patch_path, add=args.add)
+    print(f"已刷新 {result.written} 个文件（快照 {snapshot}）")
+    if result.appended:
+        print(f"新纳入清单 {len(result.appended)}")
+        for path in result.appended:
+            print(f"  {path}")
+    print(f"聚合 diff  {patch_path}")
+    print(f"摘要变化   {len(result.digest_changed)}")
+    for path in result.digest_changed:
+        print(f"  {path}")
+    print(f"清单之外的检出改动 {len(result.unmanaged)}（未纳入快照，仅报告）")
+    for path in result.unmanaged:
+        print(f"  {path}")
+    return 0
+
+
 def _cmd_check(args: argparse.Namespace) -> int:
     """执行落地自检。
 
@@ -170,8 +228,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_manifest(manifest)
         if args.command == "status":
             return _cmd_status(args, manifest)
+        if args.command == "export":
+            return _cmd_export(args, manifest)
         return _cmd_apply(args, manifest)
-    except (ManifestError, PatchError) as error:
+    except (ManifestError, PatchError, ExportError) as error:
         _LOGGER.error("%s", error)
         print(f"错误: {error}", file=sys.stderr)
         return 2

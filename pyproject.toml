@@ -1,5 +1,5 @@
 [project]
-name = "nifer-ternary"
+name = "ninfer-ternary"
 version = "0.2.0"
 description = "把 NInfer 三元（Ternary Bonsai 2 27B）移植改动落到 ninfer-4090 检出上的工具集"
 readme = "README.md"
@@ -22,6 +22,10 @@ dev = [
 
 [tool.uv.build-backend]
 module-root = "src"
+# 项目名 ninfer-ternary 推出来的模块名是 ninfer_ternary，而包目录是 nifer_ternary（与仓库名
+# nifer-ternary、命令名 nifer-ternary 一致）。不显式写出来，后端会去找一个不存在的目录，
+# 于是任何 uv run 都在"构建本项目"这一步就失败。
+module-name = "nifer_ternary"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

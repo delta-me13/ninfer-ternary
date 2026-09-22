@@ -9,7 +9,7 @@
 | **目标树** | `UDPSendToFailed/ninfer-4090` @ `5c60b7c9b455231795c09da21a9fbb6aa53f08e5`（v1.2.0 线）|
 | **改动来源** | `shensanshu/ninfer-ada-ternary` @ `ca845a4` |
 | **来源基座** | `Ambolio/ninfer-4090-windows` @ `6eb70a07`（v1.0.8-windows，Ada / sm_89 / Windows）**——不是本目标树** |
-| **文件数** | 42（新增 14，修改 28）|
+| **文件数** | 44（新增 14，修改 30）|
 | **产物** | `changed-files/`（整文件快照，覆盖即可）+ `0001-ternary-port-on-ninfer-4090.patch`（统一 diff，仅供审阅）+ `manifest.json`（逐文件摘要）|
 
 ---
@@ -67,7 +67,7 @@ v1.2.0 的对应位置上。** 增量本身很小 —— 除新增文件外，�
 | `src/ops/linear/linear.cpp` | 三元 qtype 走 `ternary_dispatch`；工作区容量返回旋转 scratch |
 | `src/ops/launcher/embed_gather.{h,cu}`、`src/ops/kernel/embed_gather.cuh` | 三元词表查表内核 + 两个启动器（复用同一套解码原子）|
 | `src/ops/wrapper/attn_input_proj.cpp` | 折叠三元双父权重的四条投影共用一次旋转；新增带工作区的重载 |
-| `src/ops/wrapper/gdn_input_proj.cpp` | 同上（qk / value / z 三路），并覆盖 conv-snapshot / conv-record / batch 三条路径 |
+| `src/ops/wrapper/gdn_input_proj.cpp` | 同上（qk / value / z 三路），并覆盖 conv-snapshot / conv-record / batch 三条路径。容量查询按权重档案分开：上游两条 `*_workspace_capacity_bytes` 保持原样，折叠三元另开两条专属查询（`*_folded_workspace_capacity_bytes`）|
 | `src/ops/wrapper/linear_add.cpp` | 三元 = 共享 GEMM 到 scratch + 现成 `residual_add` |
 | `src/ops/wrapper/linear_swiglu.cpp` | 三元 = 整块 gate_up GEMM + 现成 `silu_mul` |
 | `src/ops/wrapper/embedding.cpp` | 三元词表查表后**就地**施加逆变换；`NINFER_TERNARY_DUMP_EMBED` / `NINFER_TERNARY_TRACE_EMBED` 诊断钩子 |
@@ -76,8 +76,10 @@ v1.2.0 的对应位置上。** 增量本身很小 —— 除新增文件外，�
 
 | 文件 | 改动 |
 |---|---|
-| `src/targets/qwen3_6_27b/impl/load/bindings.{h,cpp}` | 按**制品自己声明的格式**解析分组 row-split 权重；`text/hadamard_signs` + `text/hadamard_widths` 符号表；`/gdn/output` 的折叠置换 |
-| `src/targets/qwen3_6_27b/impl/variant.cpp` | 折叠激活 scratch 的无条件预留；两处 split 投影改走带工作区的重载 |
+| `src/targets/qwen3_6_27b/export/ninfer/targets/qwen3_6_27b/package.h` | 新增 `WeightsProfile::FoldedTernary` 与制品身份常量 `folded_weights_id = "folded-ternary"` |
+| `src/targets/qwen3_6_27b/impl/package.cpp` | `resolve_weights()` 把 `qwen3.8-27b/folded-ternary` 映射到该档 |
+| `src/targets/qwen3_6_27b/impl/load/bindings.{h,cpp}` | 按**制品自己声明的格式**解析分组 row-split 权重；`text/hadamard_signs` + `text/hadamard_widths` 符号表；`/gdn/output` 的折叠置换。折叠三元档与 groupwise 档**共用同一张对象表**——绑定层从不看权重档案，档案只决定规划期的临时容量 |
+| `src/targets/qwen3_6_27b/impl/variant.cpp` | 每个携带权重档案的容量查询**按档分派**：groupwise 保持上游精确值，折叠三元另计旋转 scratch；两处 split 投影改走带工作区的重载。record 路径的**叶子竞技场**容量由 `gdn_record_workspace_bytes()` 在**运行期**按 `weight.qtype` 算 —— 那条路径拿不到权重档案，规划期的分派管不到它，漏掉就会让叶子只剩 1 字节并在图构建时抛 `std::bad_alloc` |
 | `src/targets/qwen3_6/impl/runtime/{text_context_impl.h,text_prefill_impl.h,dflash_impl.h}` | LM head 改用带工作区的 `linear()` |
 
 ---
@@ -97,6 +99,9 @@ v1.2.0 的对应位置上。** 增量本身很小 —— 除新增文件外，�
 
 ## D. 重建
 
+仓根的 `justfile` 是全部入口；本节的命令就是它实际执行的东西（`just build` / `just pack PQ2_0` /
+`just patch-check` / `just e2e <artifact>` / `just bench <artifact>`）。`just config` 打印它解析出的路径。
+
 ```bash
 # Linux / sm_89（4090）；3090 用 NINFER_ARCH=86
 export NINFER_ROOT=/path/to/ninfer-4090
@@ -112,6 +117,21 @@ python3 tools/pack.py build out.ninfer
 ```
 
 模板必须是 **groupwise-int** 那一版（`identity.weights_id == "groupwise-int"`）；`nvfp4` 版的 GDN/attention 是融合命名，不在映射表里。`pack.py` 现在会**开门见山地拦住**它并给出转换命令，而不是等 200 行后抛 `unmapped gdn object`。
+
+> ### ⚠️ 制品身份：产物是 `folded-ternary`，模板是 `groupwise-int`
+>
+> **三元制品的 `identity.weights_id` 必须是 `folded-ternary`，"模板是 groupwise-int" 与 "产物是
+> groupwise-int" 是两件事。** `pack.py` 从 v0.2.0 起写出的就是这个值。
+>
+> 理由：折叠三元的父权重与 groupwise-int **共用同一套行几何**（q/k 2048、v 6144），而引擎在规划期
+> 只看得到形状、看不到权重，只能靠 identity 分辨两者对临时字节的需求。沿用模板的 `groupwise-int`
+> 会让折叠三元按 groupwise 的容量规划，而它执行时还要多要一块 `[5120, T]` 的激活旋转缓冲 ——
+> 那是**少留**，不是保守的多留。反过来，给 groupwise 制品按三元预留则只是浪费，但会被引擎自带的
+> `gdn_input_proj_conv_{snapshot,record}` 测试判为"查询值与执行高水位不符"。
+>
+> **因此：拿到本包之前打好的三元制品，必须重打。** 引擎对 `qwen3.8-27b` 只接受两种身份
+> （`groupwise-int` → `GroupwiseIntW8Endpoints`、`folded-ternary` → `FoldedTernary`），其余组合在
+> `resolve_weights()` 直接抛错，不会静默按错误的档案跑下去。
 
 模板还必须是**容器 v2**。上游 `neroued/Qwen3.8-27B-NInfer` 的 `main` 在 v1.2.0 之后发布过 **v3** 制品
 （提交 `51630a0c`「Publish v3 artifact」），而引擎侧 `src/artifact/reader.cpp` 与本脚本都只认 v1 / v2 ——
@@ -171,6 +191,20 @@ NINFER_CLI=<build>/apps/ninfer tools/verify/e2e_ternary.sh <artifact.ninfer>
 prefill 分块（128 / 1024）× MTP 投机必须逐字节一致，而负控（`NINFER_TERNARY_HADAMARD=0`）必须不一致。
 只看"文本看起来对"是不够的 —— 关掉旋转之后输出会变成乱码，这条负控就是用来证明比对有判别力的。
 本机结果：两个制品各 6 条用例，5 条正控同摘要、负控分离，`RESULT: PASS`。
+
+### E5. 标准化跑分（需要真实制品与 GPU）
+
+```bash
+just bench <artifact.ninfer>          # 等价：NINFER_ROOT=<树> tools/bench/bench.sh <artifact>
+```
+
+固定语料 / 重复次数 / 预热 / prefill 分块，每条用例落成一张 tidy CSV，并把 GPU / 驱动 / CUDA / 引擎
+修订 / 制品摘要 / `NINFER_*` 开关写进同一目录的 `manifest.txt`。suite（`standard` / `prefill` /
+`decode` / `kv` / `mtp` / `graph` / `all`）见 `tools/bench/README.md`。
+
+**没有 `manifest.txt` 的跑分不作为证据**：`ninfer_bench` 的默认语料是相对 CWD 的路径，换一个目录跑
+换的就是语料，而输出里不留痕迹。跨制品对列前先确认两边的 `prefill_chunk` / `kv_dtype` /
+`mtp_draft_tokens` / `weights_id` 一致。
 
 ---
 

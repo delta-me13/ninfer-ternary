@@ -37,6 +37,11 @@ NumericFormat endpoint_format(WeightsProfile weights_profile) {
         return NumericFormat::Q6G64_F16S;
     case WeightsProfile::GroupwiseIntW8Endpoints:
         return NumericFormat::W8G32_F16S;
+    case WeightsProfile::FoldedTernary:
+        // 词表两端在折叠三元制品里是三元张量，但这里返回的值只用于选中"读制品声明"那条绑定
+        // 路径（见 is_row_split_grouped），实际格式一律取自制品自己。PTQ1_0_G128 与
+        // PQ2_0_G128 走的是同一条路径，所以同一个档案能同时服务两种三元打包。
+        return NumericFormat::PTQ1_0_G128;
     }
     throw std::invalid_argument("qwen3_6_27b: invalid weights profile");
 }
@@ -375,6 +380,10 @@ ArtifactLoadPlan bind_artifact(artifact::Binder& binder, WeightsProfile weights_
     switch (weights_profile) {
     case WeightsProfile::GroupwiseInt:
     case WeightsProfile::GroupwiseIntW8Endpoints:
+    case WeightsProfile::FoldedTernary:
+        // 三档共用同一张文本层对象表：绑定层按对象名与制品声明的格式物化，从不看权重档案，
+        // 所以折叠三元制品在这里与 groupwise-int 制品走完全相同的代码。档案的差别只在规划期
+        // 的临时容量查询上。
         bind_groupwise_text_layers(binder, out);
         break;
     default:

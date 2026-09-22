@@ -326,6 +326,84 @@ decode 端反而只有约 +8%（52.3 vs 48.0 t/s），因为 decode 是 T=1 的�
 
 并发下贪心输出仍然一致，说明折叠三元路径在批量 decode 槽位里也是确定的。
 
+### 4.9 本补丁自己引入的回归：从 82/84 到 84/84
+
+`ctest` 曾有两项红色，**根因在本补丁**而不是上游。写在这里，因为"哪些红是上游的、哪些是自己的"
+决定了这个补丁能不能被接受。
+
+#### 症状
+
+`ninfer_gdn_input_proj_conv_snapshot_test` / `ninfer_gdn_input_proj_conv_record_test` 报
+`workspace query/execution high-water mismatch`。
+
+折叠三元的父权重与 Q4/Q5 共用同一套**行几何**（q/k 2048、v 6144），而两条容量查询
+`gdn_input_proj_conv_{snapshot,record}_workspace_capacity_bytes` 的签名里只有形状。最初的移植选择
+"让两条查询按三元的最坏情况无条件预留"，代价是 groupwise-int 制品也被多留一块 `[5120, T]`
+激活缓冲 —— 那两个测试断言的正是 `peak_used() == 查询值`，多留即失败。
+
+#### 修法
+
+1. 新增 `WeightsProfile::FoldedTernary`（`package.h`），`resolve_weights()` 依制品身份
+   `qwen3.8-27b/folded-ternary` 解析它。
+2. 两条 ops 容量查询**恢复上游实现**，三元另开两条专属查询
+   `gdn_input_proj_conv_{snapshot,record}_folded_workspace_capacity_bytes`。
+3. `Variant` 的每个携带权重档案的容量查询按档分派：groupwise 档回到上游精确值，折叠三元档保留
+   旋转 scratch。`gdn_norm_control_projection_workspace_capacity_bytes` 是唯一例外 —— 它的签名被
+   运行时模板与 35B 目标共用，而那一档没有折叠三元，所以保留无条件预留。
+
+#### 一个被"只改规划期"这个前提掩盖的陷阱
+
+第一版修法只动了**规划期**的容量查询，`ctest` 立刻回到 84/84，但 `--spec mtp` 全线崩在
+`std::bad_alloc`，而 `ctest` 覆盖不到它。原因不在规划期：
+
+`Variant::gdn_input_projection_record` 会为 record 路径**开一块借来的叶子竞技场**：
+
+```cpp
+const DeviceSpan storage = workspace.alloc_bytes(gdn_record_workspace_bytes(hidden, weights));
+WorkspaceArena leaf_workspace(storage);
+```
+
+上游的 `gdn_input_proj_conv_record_workspace_capacity_bytes` 对融合的 Q4/Q5 返回 0，所以
+`gdn_record_workspace_bytes` 得到 `max(1, 0) = 1` —— 叶子竞技场只有 **1 字节**，而折叠三元的算子
+要在里面分配 `[5120, 5]` 的旋转缓冲（51200 字节）。`DeviceArena::alloc_bytes` 在越界时抛的正是
+`std::bad_alloc`（`src/core/arena.cu`），于是 MTP 的 verify 阶段在**图构建**时中止。
+
+这条路径在**运行期**，拿不到权重档案，只能看权重自己声明的格式。所以修法是让
+`gdn_record_workspace_bytes` 按 `weight.qtype` 判断，并把两块需求取 `max` —— 取 `max` 而不是相加：
+规划期给这块叶子预留的就是两者中的较大者，多算一字节一样是超容量。
+
+定位过程值得记一笔：把 `DeviceArena::alloc_bytes` 的越界分支临时改成打印
+`bytes / aligned_offset / cap`，一眼就看到 **`cap=1`** —— 那正是 `kMinimumLeafWorkspaceBytes`。
+一次插桩省掉了照着 84 个用例猜的时间。
+
+#### 代价：制品必须重打
+
+`pack.py` 从这一版起把产物的 `identity.weights_id` 写成 `folded-ternary`（模板仍必须是
+`groupwise-int`）。**改动之前打好的三元制品不能再用**：它们声明 `groupwise-int`，会被解析成
+非三元档，于是旋转缓冲**不被预留**。引擎对 `qwen3.8-27b` 只接受两种身份组合，其余在
+`resolve_weights()` 直接抛错。
+
+#### 复验
+
+| 项 | 修复前 | 修复后 |
+|---|---|---|
+| `ctest` | 82/84（2 项失败）| **84/84**（5 项 `real` 按设计跳过）|
+| 制品身份 | `qwen3.8-27b/groupwise-int` | `qwen3.8-27b/folded-ternary` |
+| 制品尺寸 | PQ2_0 10,533,732,876 B；PTQ1_0 9,274,212,876 B | **字节数完全相同** |
+| 端到端正控摘要 | `9ab7f3dfe667`（5 条全同）| **`9ab7f3dfe667`，逐位不变** |
+| 端到端负控摘要 | PQ2_0 `2c037e1df050`；PTQ1_0 `0e7f23175819` | 同前，逐位不变 |
+| MTP 投机（draft 4 + 优化草稿头）| 接受率 74.38%（PTQ1_0）| 76.92%（PQ2_0）/ 74.38%（PTQ1_0），输出与无投机逐字节一致 |
+| 旋转 oracle | 6/6 | 6/6 |
+| 非三元（官方制品）路径 | — | `qwen3_8_27b.v2.ninfer` 正常装载，`The capital of France is` → **Paris**；分块 128 / 1024 输出逐字节一致；规划容量回到上游精确值 |
+
+修复的判据不止 `ctest` 转绿：**两种三元格式的 5 条正控摘要 `9ab7f3dfe667` 与两个负控摘要，
+在修复前后逐位相同**，制品的字节数也一模一样 —— 说明这次改动只动了"留给多少临时字节"，没有动
+任何一个算出来的数。而 `ctest` 与端到端都没覆盖到的 `--spec mtp`，是这次修复真正的验收项。
+
+> `ctest` 以 `-j 8` 并行跑时，`ninfer_state_store_test` 与 `ninfer_disk_state_cache_test` 会偶发失败
+> （多轮里大部分轮次 84/84，失败的那一项每次还不一样）。两者都操作磁盘状态、没有资源锁，单独跑
+> 必过，且不在本补丁的改动范围内 —— 这是上游的并行测试缺陷，与本移植无关。
+
 ## 5. 未能验证的部分（诚实交代）
 
 - **PPL / 困惑度没有测**，而且用本仓现有工具测不了：CLI 没有 logprob / score 选项，`eval/` 是
@@ -334,14 +412,11 @@ decode 端反而只有约 +8%（52.3 vs 48.0 t/s），因为 decode 是 T=1 的�
 - **上下文只压到 11k token**。§4.8 在 2685 与 11043 token 的 prefill 上逐字节一致，并发 4 槽也一致；
   但 README 里那套 400k 上下文的配置（`rk4v4-e8` 等量化 KV + 长程 prefill）没有复现，
   128k 量级的 prefill 与 `--max-concurrency > 4` 未覆盖。
-- **引擎自带测试有 2 项失败，且是本补丁引起的**（完整构建本身已通过，见 §4.5）：
-  `ninfer_gdn_input_proj_conv_snapshot_test` 与 `ninfer_gdn_input_proj_conv_record_test` 断言
-  "工作区查询值 == 执行高水位"，而本补丁让这两个容量查询对**非三元**父权重也按三元规模预留。
-  根因是刻意共用了 `GroupwiseInt` 权重档案：三元制品沿用它，于是容量查询在"查询侧只有形状、没有格式"
-  的签名下无法区分两者。运行不会出错（多预留是安全的），但该不变量被破坏。正确修法是给折叠三元一个
-  独立的 `WeightsProfile`（由 `Package::resolve_weights` 依据制品身份解析），让容量查询重新精确；
-  涉及 `export/.../package.h` 枚举、`resolve_weights`、`variant.cpp` 的 14 处 `case` 与 `bindings.cpp` 的 4 处。
-  其余 82/84 用例通过。
+- **~~引擎自带测试有 2 项失败~~ —— 已修复，现在 84/84 通过**（5 项 `real` 用例按设计跳过）。
+  那 2 项失败确实由本补丁引起、不是上游：折叠三元与 Q4/Q5 共用行几何，而两条 ops 容量查询的签名里
+  只有形状，于是最初选择"都按三元的最坏情况预留"，破坏了"查询值 == 执行高水位"这条不变量。
+  修法是给折叠三元一档独立的 `WeightsProfile`，让容量查询按档分派；**代价是制品必须重打**
+  （身份从 `groupwise-int` 改为 `folded-ternary`）。完整过程见 §4.9。
 - **MTP 在基准口径下没有收益**：`ninfer_bench` 的 pp512/tg128 组合里 `rk4v4-e8` + MTP4 的 tg128 是
   39.0 t/s，反而低于不开投机的 44.3 t/s；这与 CLI 贪心下 74–77% 的接受率口径不同（基准自己采样）。
   MTP 在本机这条线上到底划不划算，需要单独一轮基准才说得清，本次没有下结论。

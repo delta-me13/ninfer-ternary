@@ -9,9 +9,9 @@
     "source_revision": "ca845a4 (pack.py: reject a non-groupwise-int template up front)",
     "source_baseline": "Ambolio/ninfer-4090-windows @ 6eb70a07 (v1.0.8-windows, Ada sm_89)"
   },
-  "file_count": 42,
+  "file_count": 44,
   "added_count": 14,
-  "modified_count": 28,
+  "modified_count": 30,
   "files": [
     {
       "path": "include/ninfer/ops/attn_input_proj.h",
@@ -21,7 +21,7 @@
     },
     {
       "path": "include/ninfer/ops/gdn_input_proj.h",
-      "sha256": "7f9161112351b979f947b776fc8935b2ab733d0c1fb6f91368499807c5455305",
+      "sha256": "00d9dc3401c98d56a5db9468ecaa63d951d96728c46d536db7206de603b32817",
       "status": "modified",
       "sha256_upstream": "c158b24cd80bad5ff34906319f11f4d18a67e064c556fcf90ebedf8ed92f6bf1"
     },
@@ -195,7 +195,7 @@
     },
     {
       "path": "src/ops/wrapper/gdn_input_proj.cpp",
-      "sha256": "e1c20eed18e0842f46b56fabd721c51485ffa6e943c132c8b0ff3e03eaf8b6a6",
+      "sha256": "5820d1613e848a8701e360b7942728bd682e7b62242f78df29c5b91296bd4c56",
       "status": "modified",
       "sha256_upstream": "2eba52afb2deec37a3beb9b3162be9349ff083b3547e6d35c18030a6aa89e4e5"
     },
@@ -230,8 +230,14 @@
       "sha256_upstream": "90af7982934d7fc20a7e97b036e28eb40a7214902c77a6f1d33c60473c612534"
     },
     {
+      "path": "src/targets/qwen3_6_27b/export/ninfer/targets/qwen3_6_27b/package.h",
+      "sha256": "6ff356053ccd2ce25afadc67d02ce6d156c45d11704d762e52bffdb7e1b5c39f",
+      "status": "modified",
+      "sha256_upstream": "99c0ee2090c6f0b9f9cb4c5895dbc7769713e596f5850c0ca9bf876f2e632ab5"
+    },
+    {
       "path": "src/targets/qwen3_6_27b/impl/load/bindings.cpp",
-      "sha256": "5298d089593acdafbb421ff2e0dcb0754208e172417c8a10e2c570f08fba3acb",
+      "sha256": "3e0453179c82f5a6705f619f8aaa3ba09d8803495192d2bd3778da5a2b9569cd",
       "status": "modified",
       "sha256_upstream": "57b2aeeb1c149bb8e1f53197c151a1e7b4a5d513957ef77a61e535949cc5eeed"
     },
@@ -242,8 +248,14 @@
       "sha256_upstream": "a7168bf9604fee2498bdb2f22b769b8286b5140b55d0335a0b21c2e48e2290f1"
     },
     {
+      "path": "src/targets/qwen3_6_27b/impl/package.cpp",
+      "sha256": "a1a7884ee043827ee7a23eef780afbdb3e3fc8103db75701a33d53a21140047f",
+      "status": "modified",
+      "sha256_upstream": "537ebffb7c5f1c57df71488dcb168098fd3dd8d375a9407c4303120c2aabc244"
+    },
+    {
       "path": "src/targets/qwen3_6_27b/impl/variant.cpp",
-      "sha256": "c0a80215d0781184a471bd0009016524c7f4b9050e1e1e78147b9c2e878bb72f",
+      "sha256": "edd890ea88e0bd66f8dd9511adb5fc3bcffe8c03388b3ed4116e2e415f18127f",
       "status": "modified",
       "sha256_upstream": "55f291f88a4743d586fb4ac2480941bf8b8969a925a15ad69a5c717d318a1e6e"
     },

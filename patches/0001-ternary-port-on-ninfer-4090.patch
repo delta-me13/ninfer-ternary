@@ -43,6 +43,43 @@
   * Single-parent GDN projection. Registered parent forms are:
   *
   * - W8G32_F16S RowSplit [12288,2048], with stored row counts [2048,2048,4096,4096].
+@@ -84,6 +97,18 @@
+     std::int32_t batch_size, std::int32_t min_width, std::int32_t max_width);
+ 
+ /**
++ * Returns the transient capacity for the folded (rotated-basis) ternary two-parent snapshot form.
++ *
++ * The folded parents share Q4/Q5's row geometry, so the query above cannot describe them: they never
++ * take the fused projection+epilogue schedule and therefore always need both a [C,B*W] projected
++ * plane and a [5120,B*W] activation-rotation buffer. Splitting the query by profile keeps the fused
++ * query exact instead of padding it for a route its caller never takes.
++ */
++[[nodiscard]] std::size_t gdn_input_proj_conv_snapshot_folded_workspace_capacity_bytes(
++    std::int32_t query_rows, std::int32_t key_rows, std::int32_t value_rows,
++    std::int32_t batch_size, std::int32_t min_width, std::int32_t max_width);
++
++/**
+  * Op: gdn_input_proj_conv_snapshot
+  *
+  * Math / indexing:
+@@ -156,6 +181,17 @@
+     std::int32_t query_rows, std::int32_t key_rows, std::int32_t value_rows,
+     std::int32_t batch_size, std::int32_t min_width, std::int32_t max_width);
+ 
++/**
++ * Returns the transient capacity for the folded (rotated-basis) ternary two-parent record form.
++ *
++ * The projection still writes straight into the caller-owned conv_record, but the folded GEMM must
++ * first map the flattened [5120,B*T] activation into the rotated basis, and that scratch is not
++ * caller-owned.
++ */
++[[nodiscard]] std::size_t gdn_input_proj_conv_record_folded_workspace_capacity_bytes(
++    std::int32_t query_rows, std::int32_t key_rows, std::int32_t value_rows,
++    std::int32_t batch_size, std::int32_t min_width, std::int32_t max_width);
++
+ /**
+  * Op: gdn_input_proj_conv_record
+  *
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
 @@ -155,6 +155,11 @@
@@ -2355,7 +2392,7 @@
  #include <cstdint>
  #include <stdexcept>
  #include <string>
-@@ -430,6 +434,64 @@
+@@ -430,6 +434,66 @@
  
  } // namespace
  
@@ -2372,6 +2409,8 @@
 +
 +// 本 target 上 GDN 输入投影恒定消费 5120 宽的隐藏态。
 +constexpr std::int32_t kFoldedGdnHidden = 5120;
++// q 2048 + k 2048 + v 6144：折叠三元与 Q4/Q5 共用这一行几何，也正因如此两条容量查询必须分开。
++constexpr std::int32_t kFoldedGdnChannels = 10240;
 +
 +void require_ternary_split_parents(const Weight& qk_weight, const Weight& value_z_weight,
 +                                   std::int32_t qk_rows, std::int32_t parent_rows,
@@ -2420,7 +2459,7 @@
  void gdn_input_proj(const Tensor& x, const Weight& qk_weight, const Weight& value_z_weight,
                      Tensor& qkv, Tensor& z, cudaStream_t stream) {
      constexpr std::int32_t kHidden     = 5120;
-@@ -443,12 +505,53 @@
+@@ -443,12 +507,53 @@
      require_matrix(x, kHidden, cols, "x");
      require_matrix(qkv, kQkvRows, cols, "qkv");
      require_matrix(z, kZRows, cols, "z");
@@ -2474,37 +2513,52 @@
  std::size_t gdn_input_proj_workspace_capacity_bytes(QType parent_qtype, std::int32_t parent_rows,
                                                      std::int32_t input_rows, LinearPolicy policy,
                                                      std::int32_t min_tokens,
-@@ -514,10 +617,15 @@
-         (void)resolve_w8_conv_plan(max_width, 1);
-         if (max_width >= 17) { largest_materialized_width = max_width; }
-     }
--    if (largest_materialized_width == 0) { return 0; }
-+    // 折叠三元父权重永不走融合调度，因此它们总是既需要投影工作区、又需要一块 [hidden, token]
-+    // 的旋转缓冲，这里把两者都预留。该查询不携带权重档案（它按行几何索引，而三元父权重与
-+    // Q4/Q5 共享同一行几何），所以预留是无条件的；对 groupwise-int 制品而言，代价只是叶子
-+    // 竞技场大一点。
-     WorkspaceLayoutBuilder layout;
--    (void)allocate_projected_workspace(layout, channels, largest_materialized_width);
--    return layout.peak_bytes(1);
-+    (void)allocate_projected_workspace(
-+        layout, channels, largest_materialized_width == 0 ? max_width : largest_materialized_width);
-+    return layout.peak_bytes(1) +
-+           detail::ternary_rotation_workspace_bytes(kFoldedGdnHidden, batch_size * max_width);
+@@ -520,6 +625,22 @@
+     return layout.peak_bytes(1);
  }
  
++std::size_t gdn_input_proj_conv_snapshot_folded_workspace_capacity_bytes(
++    std::int32_t query_rows, std::int32_t key_rows, std::int32_t value_rows,
++    std::int32_t batch_size, std::int32_t min_width, std::int32_t max_width) {
++    const std::int32_t channels = query_rows + key_rows + value_rows;
++    if (channels != kFoldedGdnChannels) {
++        throw std::invalid_argument(
++            "gdn_input_proj_conv_snapshot folded workspace: unregistered shape");
++    }
++    require_snapshot_capacity_domain(batch_size, min_width, max_width);
++    // 折叠父权重一律走"先投影进 scratch、再做卷积"的组合路线，所以两块缓冲都在同一个作用域里
++    // 存活：投影平面之后是激活旋转缓冲。列数取查询区间的上端，因为两者都随列数单调。
++    const std::int32_t columns = batch_size > 1 ? batch_size * max_width : max_width;
++    return composed_snapshot_capacity(
++        channels, columns, detail::ternary_rotation_workspace_bytes(kFoldedGdnHidden, columns));
++}
++
  std::size_t gdn_input_proj_conv_record_workspace_capacity_bytes(
-@@ -536,7 +644,9 @@
-         (void)resolve_w8_conv_plan(min_width, batch_size);
-         (void)resolve_w8_conv_plan(max_width, batch_size);
-     }
--    return 0;
-+    // record 路径直接投影进调用方的 conv record，唯一需要的临时字节就是折叠三元的旋转缓冲
-+    // （见上面的 snapshot 容量查询）。
-+    return detail::ternary_rotation_workspace_bytes(kFoldedGdnHidden, batch_size * max_width);
+     std::int32_t query_rows, std::int32_t key_rows, std::int32_t value_rows,
+     std::int32_t batch_size, std::int32_t min_width, std::int32_t max_width) {
+@@ -539,6 +660,21 @@
+     return 0;
  }
  
++std::size_t gdn_input_proj_conv_record_folded_workspace_capacity_bytes(
++    std::int32_t query_rows, std::int32_t key_rows, std::int32_t value_rows,
++    std::int32_t batch_size, std::int32_t min_width, std::int32_t max_width) {
++    const std::int32_t channels = query_rows + key_rows + value_rows;
++    if (channels != kFoldedGdnChannels) {
++        throw std::invalid_argument(
++            "gdn_input_proj_conv_record folded workspace: unregistered shape");
++    }
++    require_record_capacity_domain(batch_size, min_width, max_width);
++    // 投影本身写进调用方的 conv record，所以唯一需要的临时字节就是折叠 GEMM 的激活旋转缓冲，
++    // 而它按展平后的列数（B*T）取。
++    const std::int32_t columns = batch_size > 1 ? batch_size * max_width : max_width;
++    return detail::ternary_rotation_workspace_bytes(kFoldedGdnHidden, columns);
++}
++
  void gdn_input_proj_conv_snapshot(const Tensor& x, const Weight& qk_weight,
-@@ -554,8 +664,15 @@
+                                   const Weight& value_z_weight, const Tensor& conv_weight,
+                                   Tensor& conv_states, const Tensor& valid_columns,
+@@ -554,8 +690,15 @@
      constexpr std::int32_t kChannels   = kQueryRows + kKeyRows + kValueRows;
      constexpr std::int32_t kParentRows = kValueRows + kZRows;
      const ConvGeometry geometry        = require_snapshot_input(x, kHidden);
@@ -2522,7 +2576,7 @@
      require_snapshot_operands(conv_weight, conv_states, valid_columns, initial_state_slots,
                                snapshot_base_slots, kChannels, geometry);
      require_conv_tensor(query, kQueryRows, geometry.width, geometry.batch,
-@@ -567,6 +684,33 @@
+@@ -567,6 +710,33 @@
      require_conv_tensor(z, kZRows, geometry.width, geometry.batch, "gdn_input_proj_conv_snapshot",
                          "z");
  
@@ -2556,7 +2610,7 @@
      if (geometry.batch > 1) {
          compose_batched_snapshot(
              x, conv_weight, conv_states, valid_columns, initial_state_slots, snapshot_base_slots,
-@@ -608,8 +752,14 @@
+@@ -608,8 +778,14 @@
      constexpr std::int32_t kChannels   = kQueryRows + kKeyRows + kValueRows;
      constexpr std::int32_t kParentRows = kValueRows + kZRows;
      const ConvGeometry geometry        = require_record_input(x, kHidden);
@@ -2573,7 +2627,7 @@
      require_record_operands(conv_weight, conv_states, valid_columns, initial_state_slots, kChannels,
                              geometry);
      require_conv_tensor(conv_record, kChannels, geometry.width, geometry.batch,
-@@ -625,6 +775,24 @@
+@@ -625,6 +801,24 @@
      require_record_nonoverlap(x, conv_weight, conv_states, valid_columns, initial_state_slots,
                                conv_record, query, key, value, z, workspace);
  
@@ -2768,9 +2822,45 @@
      CUDA_CHECK(cudaMemcpyAsync(state.execution.io.pos.data, &absolute_position,
                                 sizeof(absolute_position), cudaMemcpyHostToDevice,
                                 state.execution.device.stream));
+--- a/src/targets/qwen3_6_27b/export/ninfer/targets/qwen3_6_27b/package.h
++++ b/src/targets/qwen3_6_27b/export/ninfer/targets/qwen3_6_27b/package.h
+@@ -29,9 +29,14 @@
+ 
+ struct Variant;
+ 
++// 权重档案描述"制品里存在哪些张量、以及规划期要为它们预留多少临时字节"。行几何不足以区分
++// groupwise-int 转换产物与折叠（旋转基）三元产物 —— 两者的 GDN/attention 形状完全相同 —— 所以
++// 折叠三元必须有自己的一档，否则规划期的容量查询只能取两者的上界，而引擎要求查询值恰好等于
++// 执行高水位。
+ enum class WeightsProfile : std::uint8_t {
+     GroupwiseInt,
+     GroupwiseIntW8Endpoints,
++    FoldedTernary,
+ };
+ 
+ using Frontend       = qwen3_6::Frontend;
+@@ -81,6 +86,9 @@
+     static constexpr std::string_view target_key         = "qwen3_6_27b";
+     static constexpr std::string_view qwen3_8_model_id   = "qwen3.8-27b";
+     static constexpr std::string_view qwen3_8_target_key = "qwen3_8_27b";
++    // 折叠三元制品的 identity.weights_id。绑定期并不看它 —— 每个权重的格式由制品自己的声明
++    // 决定 —— 但规划期的容量查询看不到权重，只能靠它区分两档。
++    static constexpr std::string_view folded_weights_id = "folded-ternary";
+ 
+     using WeightsProfile  = detail::WeightsProfile;
+     using LoadPlan        = detail::LoadPlan;
 --- a/src/targets/qwen3_6_27b/impl/load/bindings.cpp
 +++ b/src/targets/qwen3_6_27b/impl/load/bindings.cpp
-@@ -41,15 +41,148 @@
+@@ -37,19 +37,157 @@
+         return NumericFormat::Q6G64_F16S;
+     case WeightsProfile::GroupwiseIntW8Endpoints:
+         return NumericFormat::W8G32_F16S;
++    case WeightsProfile::FoldedTernary:
++        // 词表两端在折叠三元制品里是三元张量，但这里返回的值只用于选中"读制品声明"那条绑定
++        // 路径（见 is_row_split_grouped），实际格式一律取自制品自己。PTQ1_0_G128 与
++        // PQ2_0_G128 走的是同一条路径，所以同一个档案能同时服务两种三元打包。
++        return NumericFormat::PTQ1_0_G128;
+     }
      throw std::invalid_argument("qwen3_6_27b: invalid weights profile");
  }
  
@@ -2923,7 +3013,7 @@
  }
  
  Weight row_view(const Weight& block, std::int32_t row_begin, std::int32_t row_count) {
-@@ -57,11 +190,15 @@
+@@ -57,11 +195,15 @@
          block.layout != QuantLayout::RowSplit) {
          throw std::logic_error("invalid target row view");
      }
@@ -2944,7 +3034,7 @@
      const std::uint64_t low_row    = groups * low_group;
      const std::uint64_t high_row   = groups * high_group;
      const std::uint64_t scale_row  = groups * 2;
-@@ -222,6 +359,9 @@
+@@ -222,6 +364,9 @@
      (void)bind("dflash2/candidate_selector/successor_codebook", NumericFormat::BF16, {248320, 256});
  }
  
@@ -2954,7 +3044,18 @@
  ArtifactLoadPlan bind_artifact(artifact::Binder& binder, WeightsProfile weights_profile,
                                 qwen3_6::StartupFeatures features) {
      ArtifactLoadPlan load_plan;
-@@ -243,6 +383,7 @@
+@@ -235,6 +380,10 @@
+     switch (weights_profile) {
+     case WeightsProfile::GroupwiseInt:
+     case WeightsProfile::GroupwiseIntW8Endpoints:
++    case WeightsProfile::FoldedTernary:
++        // 三档共用同一张文本层对象表：绑定层按对象名与制品声明的格式物化，从不看权重档案，
++        // 所以折叠三元制品在这里与 groupwise-int 制品走完全相同的代码。档案的差别只在规划期
++        // 的临时容量查询上。
+         bind_groupwise_text_layers(binder, out);
+         break;
+     default:
+@@ -243,6 +392,7 @@
      out.final_norm =
          artifact::bind_device_tensor(binder, "text/final_norm", NumericFormat::BF16, {5120});
      out.output_head = bind_weight(binder, "text/output_head", vocabulary_format, {248320, 5120});
@@ -2962,7 +3063,7 @@
      const artifact::TensorPlacement proposal_placement =
          features.optimized_proposal() ? artifact::TensorPlacement::Device
                                        : artifact::TensorPlacement::ValidateOnly;
-@@ -300,9 +441,47 @@
+@@ -300,9 +450,47 @@
      return load_plan;
  }
  
@@ -3065,28 +3166,72 @@
      MtpPlan mtp;
  
      qwen3_6::VisionBackbonePlan vision_backbone;
+--- a/src/targets/qwen3_6_27b/impl/package.cpp
++++ b/src/targets/qwen3_6_27b/impl/package.cpp
+@@ -89,6 +89,9 @@
+     if (identity.model_id == qwen3_8_model_id && identity.weights_id == "groupwise-int") {
+         return WeightsProfile::GroupwiseIntW8Endpoints;
+     }
++    if (identity.model_id == qwen3_8_model_id && identity.weights_id == folded_weights_id) {
++        return WeightsProfile::FoldedTernary;
++    }
+     throw std::runtime_error("artifact identity '" + identity.model_id + "/" + identity.weights_id +
+                              "' is not supported by target '" + std::string(target_key) + "'");
+ }
 --- a/src/targets/qwen3_6_27b/impl/variant.cpp
 +++ b/src/targets/qwen3_6_27b/impl/variant.cpp
-@@ -45,6 +45,18 @@
+@@ -45,15 +45,45 @@
  
  constexpr std::size_t kMinimumLeafWorkspaceBytes = 1;
  
 +// 折叠（旋转基）三元激活 scratch：三元权重在矩阵乘之前需要的一块 [input_width, last] BF16 缓冲
 +// （先 P、再符号、再名义上的 Hadamard）。
 +//
-+// 三元移植刻意保留了 groupwise-int 的身份 —— 绑定层从制品自己的声明里解析每个权重的格式，所以
-+// 权重档案只决定"哪些张量存在"，不决定"它们怎么编码" —— 这意味着该档案被两种制品共用，预留
-+// 无法按它做条件判断。代价是每个三元算子一块激活大小的缓冲，与本阶段已经预留的激活根同量级，
-+// 而它正是三元制品得以成功构建 CUDA 图的前提。
++// 只有 WeightsProfile::FoldedTernary 会走到这里。绑定期不看权重档案，但规划期看不到权重，
++// 所以每个携带档案的容量查询都必须按档分派；把两档混为一档会让非三元制品也预留这块缓冲，
++// 而引擎要求容量查询的值恰好等于执行高水位。
 +std::size_t folded_rotation_bytes(std::int32_t input_width, std::int32_t last) {
 +    return ops::linear_workspace_capacity_bytes(QType::PQ2_0_G128, input_width, input_width,
 +                                                ops::LinearPolicy::A16Only, 1, last);
 +}
 +
++// 折叠三元父权重的判定只能看【权重自己声明的格式】：这条路径在运行期，拿不到权重档案。
++bool is_folded_ternary_parent(const Weight& weight) noexcept {
++    return weight.qtype == QType::PTQ1_0_G128 || weight.qtype == QType::PQ2_0_G128;
++}
++
++const Weight& gdn_input_parent(const Variant::GdnProjectionWeights& weights) {
++    if (const auto* split = std::get_if<SplitGdnInputProjectionPayload>(&weights.input_projection)) {
++        return split->query_key;
++    }
++    return std::get<FusedGdnInputProjectionPayload>(weights.input_projection).query_key_value_z;
++}
++
++// record 路径的临时字节只能在这里算：gdn_input_projection_record 用它开一块【叶子竞技场】，
++// 而叶子竞技场的容量没有别处可定。上游那条 record 容量查询只服务融合的 Q4/Q5（返回 0），
++// 折叠三元的父权重在这条路径上仍要先把展平激活映射进旋转基，那块 [hidden, B*T] 缓冲得由这里
++// 补上，否则叶子竞技场只有 1 字节，算子会在第一次分配时撞上容量检查。
  std::size_t gdn_record_workspace_bytes(const Tensor& hidden,
                                         const Variant::GdnProjectionWeights& weights) {
-     (void)weights;
-@@ -102,10 +114,9 @@
+-    (void)weights;
+     const std::int32_t batch = hidden.ne[2];
+     const std::int32_t width = hidden.ne[1];
+-    return std::max(kMinimumLeafWorkspaceBytes,
+-                    ops::gdn_input_proj_conv_record_workspace_capacity_bytes(
+-                        TextConfig::key_dim, TextConfig::key_dim, TextConfig::value_dim, batch,
+-                        width, width));
++    std::size_t bytes        = ops::gdn_input_proj_conv_record_workspace_capacity_bytes(
++        TextConfig::key_dim, TextConfig::key_dim, TextConfig::value_dim, batch, width, width);
++    if (is_folded_ternary_parent(gdn_input_parent(weights))) {
++        // 取 max 而不是相加：规划期给这块叶子预留的就是这两者中的较大者，多算一字节同样是
++        // 超容量 —— 叶子竞技场是借来的，容量就是外层已经划出去的那一段。
++        bytes = std::max(bytes, folded_rotation_bytes(TextConfig::hidden, batch * width));
++    }
++    return std::max(kMinimumLeafWorkspaceBytes, bytes);
+ }
+ 
+ } // namespace
+@@ -102,10 +132,9 @@
                                     const FullAttentionProjectionWeights& weights, Tensor& query,
                                     Tensor& gate, Tensor& key, Tensor& value, qwen3_6::TextPhase,
                                     WorkspaceArena& workspace, cudaStream_t stream) {
@@ -3098,7 +3243,7 @@
          return;
      }
      const Weight& fused = std::get<FusedAttentionProjectionPayload>(weights).query_key_gate_value;
-@@ -148,13 +159,12 @@
+@@ -148,13 +177,12 @@
  void Variant::gdn_input_projection(const Tensor& hidden, const GdnProjectionWeights& weights,
                                     Tensor& qkv, Tensor& output_gate, qwen3_6::TextPhase,
                                     WorkspaceArena& workspace, cudaStream_t stream) {
@@ -3113,57 +3258,84 @@
          return;
      }
      const Weight& fused =
-@@ -277,7 +287,9 @@
+@@ -277,7 +305,11 @@
      switch (weights_profile) {
      case WeightsProfile::GroupwiseInt:
      case WeightsProfile::GroupwiseIntW8Endpoints:
--        return 0;
-+        // 融合 groupwise-int 路线不需要临时字节；折叠三元移植共用该档案而需要（见
-+        // folded_rotation_bytes）。本投影消费的是原始隐藏态，所以激活宽度是 5120。
++        // 融合 groupwise 路线把投影写进调用方张量，不需要临时字节。
+         return 0;
++    case WeightsProfile::FoldedTernary:
++        // 本投影消费的是原始隐藏态，所以激活宽度是 5120。
 +        return folded_rotation_bytes(TextConfig::hidden, last);
      }
      throw std::logic_error("invalid 27B weights profile");
  }
-@@ -288,7 +300,10 @@
-     switch (weights_profile) {
-     case WeightsProfile::GroupwiseInt:
-     case WeightsProfile::GroupwiseIntW8Endpoints:
--        return ops::linear_add_workspace_capacity_bytes(QType::Q5G64_F16S, TextConfig::hidden,
-+        // 折叠三元移植共用 groupwise-int 档案：本投影折进残差，而三元路线需要一块
-+        // [hidden, T] 的投影 scratch 加上 [query_size, T] 的激活旋转缓冲。这是融合 Q5 路线
-+        // 那零字节的超集，所以同一个查询能同时服务两种制品。
-+        return ops::linear_add_workspace_capacity_bytes(QType::PQ2_0_G128, TextConfig::hidden,
+@@ -291,6 +323,12 @@
+         return ops::linear_add_workspace_capacity_bytes(QType::Q5G64_F16S, TextConfig::hidden,
                                                          TextConfig::query_size,
                                                          ops::LinearPolicy::A16Only, first, last);
++    case WeightsProfile::FoldedTernary:
++        // 三元路线折进残差时需要一块 [hidden, T] 的投影 scratch，再加上 [query_size, T] 的
++        // 激活旋转缓冲。
++        return ops::linear_add_workspace_capacity_bytes(QType::PQ2_0_G128, TextConfig::hidden,
++                                                        TextConfig::query_size,
++                                                        ops::LinearPolicy::A16Only, first, last);
      }
-@@ -303,7 +318,9 @@
-     switch (weights_profile) {
+     throw std::logic_error("invalid 27B weights profile");
+ }
+@@ -304,6 +342,9 @@
      case WeightsProfile::GroupwiseInt:
      case WeightsProfile::GroupwiseIntW8Endpoints:
--        return 0;
-+        // 见 attention_projection_workspace_capacity_bytes：折叠三元移植共用 groupwise-int
-+        // 档案。本投影同样消费原始隐藏态。
+         return 0;
++    case WeightsProfile::FoldedTernary:
++        // 见 attention_projection_workspace_capacity_bytes：本投影同样消费原始隐藏态。
 +        return folded_rotation_bytes(TextConfig::hidden, last);
      }
      throw std::logic_error("invalid 27B weights profile");
  }
-@@ -345,7 +362,9 @@
-     switch (weights_profile) {
-     case WeightsProfile::GroupwiseInt:
-     case WeightsProfile::GroupwiseIntW8Endpoints:
--        return ops::linear_add_workspace_capacity_bytes(QType::Q5G64_F16S, TextConfig::hidden,
+@@ -318,6 +359,11 @@
+         return ops::gdn_input_proj_conv_snapshot_workspace_capacity_bytes(
+             TextConfig::key_dim, TextConfig::key_dim, TextConfig::value_dim, batch_size, first,
+             last);
++    case WeightsProfile::FoldedTernary:
++        // 折叠父权重永不走融合调度，所以它的投影 scratch 与激活旋转缓冲都由这一档单独查询。
++        return ops::gdn_input_proj_conv_snapshot_folded_workspace_capacity_bytes(
++            TextConfig::key_dim, TextConfig::key_dim, TextConfig::value_dim, batch_size, first,
++            last);
+     }
+     throw std::logic_error("invalid 27B weights profile");
+ }
+@@ -333,6 +379,11 @@
+                         ops::gdn_input_proj_conv_record_workspace_capacity_bytes(
+                             TextConfig::key_dim, TextConfig::key_dim, TextConfig::value_dim,
+                             batch_size, first, last));
++    case WeightsProfile::FoldedTernary:
++        return std::max(kMinimumLeafWorkspaceBytes,
++                        ops::gdn_input_proj_conv_record_folded_workspace_capacity_bytes(
++                            TextConfig::key_dim, TextConfig::key_dim, TextConfig::value_dim,
++                            batch_size, first, last));
+     }
+     throw std::logic_error("invalid 27B weights profile");
+ }
+@@ -348,29 +399,47 @@
+         return ops::linear_add_workspace_capacity_bytes(QType::Q5G64_F16S, TextConfig::hidden,
+                                                         TextConfig::value_dim,
+                                                         ops::LinearPolicy::A16Only, first, last);
++    case WeightsProfile::FoldedTernary:
 +        // 见 attention_output_projection_workspace_capacity_bytes：三元路线把 6144 宽的 GDN
 +        // 输出喂进一块 [hidden, T] scratch，并旋转一块 [value_dim, T] 的激活。
 +        return ops::linear_add_workspace_capacity_bytes(QType::PQ2_0_G128, TextConfig::hidden,
-                                                         TextConfig::value_dim,
-                                                         ops::LinearPolicy::A16Only, first, last);
++                                                        TextConfig::value_dim,
++                                                        ops::LinearPolicy::A16Only, first, last);
      }
-@@ -354,8 +373,11 @@
+     throw std::logic_error("invalid 27B weights profile");
+ }
  
  std::size_t Variant::gdn_norm_control_projection_workspace_capacity_bytes(std::int32_t first,
                                                                            std::int32_t last) {
-+    // 本查询不携带权重档案，而 A/B 控制投影也在折叠三元权重之列，所以旋转 scratch 无条件预留。
-+    // 它是每个 token tile 一块激活大小的缓冲，与本阶段已预留者同量级。
++    // 本查询是唯一一个不携带权重档案的：运行时模板把它与 35B 目标共用，而那一档没有折叠三元。
++    // A/B 控制投影在折叠三元制品里确实要旋转，所以这里无条件预留一块激活大小的缓冲；对
++    // groupwise-int 制品是保守的多留，不会少留。
      return ops::gdn_norm_gating_proj_workspace_capacity_bytes(TextConfig::gdn_value_heads,
 -                                                              TextConfig::hidden, first, last);
 +                                                              TextConfig::hidden, first, last) +
@@ -3171,16 +3343,28 @@
  }
  
  std::size_t Variant::post_mixer_workspace_capacity_bytes(WeightsProfile weights_profile,
-@@ -369,8 +391,10 @@
+                                                          qwen3_6::TextPhase, std::int32_t first,
+                                                          std::int32_t last) {
+     validate_token_interval(first, last);
++    QType gate_up_qtype;
++    QType down_qtype;
+     switch (weights_profile) {
+     case WeightsProfile::GroupwiseInt:
+     case WeightsProfile::GroupwiseIntW8Endpoints:
++        gate_up_qtype = QType::Q4G64_F16S;
++        down_qtype    = QType::Q5G64_F16S;
++        break;
++    case WeightsProfile::FoldedTernary:
++        // 折叠三元的 SwiGLU gate/up 父权重被整体投影（2 * intermediate 行），down 投影折进
++        // 残差，两条路线都是 128 宽组几何的三元格式。
++        gate_up_qtype = QType::PQ2_0_G128;
++        down_qtype    = QType::PQ2_0_G128;
+         break;
      default:
          throw std::invalid_argument("qwen3_6_27b: invalid weights profile");
      }
 -    const QType gate_up_qtype = QType::Q4G64_F16S;
 -    const QType down_qtype    = QType::Q5G64_F16S;
-+    // 折叠三元移植共用 groupwise-int 档案：SwiGLU 的 gate/up 父权重被整体投影（2 * intermediate
-+    // 行），down 投影折进残差，所以一个查询同时预留两条三元路线即可服务两种制品。
-+    const QType gate_up_qtype = QType::PQ2_0_G128;
-+    const QType down_qtype    = QType::PQ2_0_G128;
      const ops::LinearPolicy policy = ops::LinearPolicy::A16Only;
  
      WorkspaceLayoutBuilder layout;
