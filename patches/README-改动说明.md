@@ -9,7 +9,7 @@
 | **目标树** | `UDPSendToFailed/ninfer-4090` @ `5c60b7c9b455231795c09da21a9fbb6aa53f08e5`（v1.2.0 线）|
 | **改动来源** | `shensanshu/ninfer-ada-ternary` @ `ca845a4` |
 | **来源基座** | `Ambolio/ninfer-4090-windows` @ `6eb70a07`（v1.0.8-windows，Ada / sm_89 / Windows）**——不是本目标树** |
-| **文件数** | 44（新增 14，修改 30）|
+| **文件数** | 45（新增 14，修改 31）|
 | **产物** | `changed-files/`（整文件快照，覆盖即可）+ `0001-ternary-port-on-ninfer-4090.patch`（统一 diff，仅供审阅）+ `manifest.json`（逐文件摘要）|
 
 ---
@@ -81,6 +81,7 @@ v1.2.0 的对应位置上。** 增量本身很小 —— 除新增文件外，�
 | `src/targets/qwen3_6_27b/impl/load/bindings.{h,cpp}` | 按**制品自己声明的格式**解析分组 row-split 权重；`text/hadamard_signs` + `text/hadamard_widths` 符号表；`/gdn/output` 的折叠置换。折叠三元档与 groupwise 档**共用同一张对象表**——绑定层从不看权重档案，档案只决定规划期的临时容量 |
 | `src/targets/qwen3_6_27b/impl/variant.cpp` | 每个携带权重档案的容量查询**按档分派**：groupwise 保持上游精确值，折叠三元另计旋转 scratch；两处 split 投影改走带工作区的重载。record 路径的**叶子竞技场**容量由 `gdn_record_workspace_bytes()` 在**运行期**按 `weight.qtype` 算 —— 那条路径拿不到权重档案，规划期的分派管不到它，漏掉就会让叶子只剩 1 字节并在图构建时抛 `std::bad_alloc` |
 | `src/targets/qwen3_6/impl/runtime/{text_context_impl.h,text_prefill_impl.h,dflash_impl.h}` | LM head 改用带工作区的 `linear()` |
+| `tests/targets/qwen3_6_27b/test_load_plan.cpp` | **与三元无关的一行修复**：该文件用 `std::ranges::count_if` 却没包含 `<algorithm>`。gcc 14.3.1 + libstdc++ 15（Rocky Linux 10）不再传递包含它，`BUILD_TESTING=ON` 直接编不过（`'count_if' is not a member of 'std::ranges'`）。**不带上这一行，"干净检出 → 打补丁 → `just build-tests`"这条链路就断在测试目标上**，而 `just ctest` 是本包验证流程的一环 |
 
 ---
 
@@ -107,6 +108,14 @@ v1.2.0 的对应位置上。** 增量本身很小 —— 除新增文件外，�
 export NINFER_ROOT=/path/to/ninfer-4090
 tools/verify/build.sh clean          # 首次；之后用 incremental
 ```
+
+干净检出（`git clone` 出来的 v1.2.0）上跑完整条链路是一条命令：
+
+```bash
+just from-scratch PQ2_0              # patch-apply -> build -> build-tests -> ctest -> pack
+```
+
+这条链路在干净检出上核对过：`apply` 写入 45 个文件后，目录树与已应用检出逐字节一致（`diff -r` 无差异）。
 
 三元制品（改了 `pack.py` 或 `tools/artifact` 之后必须重打）：
 

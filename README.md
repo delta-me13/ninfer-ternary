@@ -42,8 +42,20 @@ Ternary Bonsai 2 27B，Ada sm_89 + Windows 线）的成果，**适配到
 | `just oracle` | `tools/verify/run_rotation_oracle.sh` | 旋转内核 vs numpy FP64 |
 | `just e2e <artifact>` | `tools/verify/e2e_ternary.sh <artifact>` | 端到端一致性矩阵 |
 | `just bench <artifact> [suite]` | `tools/bench/bench.sh <artifact> [suite]` | 标准化跑分（语料/重复/预热钉死）|
-| `just pack PQ2_0` | `tools/pack.py build <out>` | 打包三元制品 |
+| `just pack PQ2_0` | `tools/pack.py build <out>` | 打包三元制品（自动挑出带 numpy 的解释器）|
+| `just pack-check PQ2_0` | `tools/pack.py check` | 打包前自检：几何 + 解码 + 字节往返，只读 |
+| `just from-scratch PQ2_0` | — | **干净检出一条命令走完：补丁 → 编译 → 测试 → 打包** |
 | `just all <artifact>` | — | 依赖 → 门禁 → 构建 → ctest → oracle → e2e |
+
+两条"一条命令走完"的路径，区别只在起点：
+
+- **已有编译好的树**：`just all <artifact>` —— 依赖自检 → 代码门禁 → 构建 → ctest → 旋转 oracle → 端到端矩阵。
+- **干净检出**（`git clone` 出来的 v1.2.0，什么改动都还没落）：`just from-scratch PQ2_0` ——
+  补丁 → 编译 → 测试 → 打包三元制品。它先跑 `patch-apply`，所以不需要手工覆盖文件。
+
+打包器要真读张量，而发行版 `python3` 没有 numpy。`pack` / `pack-check` 会自己挑一个能用的解释器
+（`PYTHON` → 发行版 `python3` → `NINFER_TERNARY_PYTHON_FALLBACK`，本机是 `/tmp/venv-torch/bin/python`），
+挑不到就以退出码 3 收场并说明补救办法，不会装完 20 GiB 模板才抛 traceback。
 
 ---
 
@@ -55,7 +67,7 @@ patches/
   README-改动说明.md                     ← 改动清单、与上游的刻意差异、重建与验证步骤（先读这个）
   manifest.json                          ← 目标提交 + 逐文件上游/改动后 sha256
   0001-ternary-port-on-ninfer-4090.patch ← 统一 diff（仅供审阅）
-  changed-files/                         ← 整文件快照，覆盖即可生效（44 个文件：新增 14 / 修改 30）
+  changed-files/                         ← 整文件快照，覆盖即可生效（45 个文件：新增 14 / 修改 31）
 tools/
   bench/
     bench.sh                             ← 标准化跑分：语料/重复/预热/分块钉死，产出 tidy CSV + 环境清单
@@ -112,6 +124,7 @@ docs/依赖安装-RockyLinux10.md            ← 缺失系统库清单、安装�
 | `tools/artifact` 三元几何 vs 引擎 | `[248320,5120]` → PTQ1_0 278,118,400 B / PQ2_0 337,715,200 B，与引擎侧注释逐字节一致 |
 | Python 包 | 20 用例通过（正负控只用临时目录与仓内快照）；`ruff check` / `ruff format --check` / `mypy` 全绿 |
 | 独立 harness 编译 | `rot_test.cu` / `gemm_test.cu` 均零错误零警告（`gemm_test.cu` 原本编译不过，见下）|
+| **干净检出可复现** | `git clone` v1.2.0 → `patch-apply` 写入 45 个文件 → `diff -r` 与已应用检出**无差异**；干净检出上 `BUILD_TESTING=ON` 全量重编 **726/726 exit 0**、`ctest` **84/84**（§4.10）|
 | **标准化跑分（`tools/bench/bench.sh`）** | PQ2_0 `standard`：pp512 **267.2±18.4**、pp2048 **303.4±5.6**、tg128 **50.8±4.3** t/s。CSV 里 `weights_id` 读回 **`folded-ternary`**，`workspace_capacity_bytes` = **180,953,088**（= 修复前后两个二进制算出的同一个 172.57 MiB）|
 
 ---

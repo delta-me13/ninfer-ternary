@@ -9,9 +9,9 @@
     "source_revision": "ca845a4 (pack.py: reject a non-groupwise-int template up front)",
     "source_baseline": "Ambolio/ninfer-4090-windows @ 6eb70a07 (v1.0.8-windows, Ada sm_89)"
   },
-  "file_count": 44,
+  "file_count": 45,
   "added_count": 14,
-  "modified_count": 30,
+  "modified_count": 31,
   "files": [
     {
       "path": "include/ninfer/ops/attn_input_proj.h",
@@ -258,6 +258,12 @@
       "sha256": "edd890ea88e0bd66f8dd9511adb5fc3bcffe8c03388b3ed4116e2e415f18127f",
       "status": "modified",
       "sha256_upstream": "55f291f88a4743d586fb4ac2480941bf8b8969a925a15ad69a5c717d318a1e6e"
+    },
+    {
+      "path": "tests/targets/qwen3_6_27b/test_load_plan.cpp",
+      "sha256": "4b483f8e9641b2d7d3c1ce8508ab3029c4a19c989e36f373076b1e38a264cab9",
+      "status": "modified",
+      "sha256_upstream": "1a21e56fe3b1fe156cfd399967726aebf9a0de553899b72c296e9502d46a4eea"
     },
     {
       "path": "tools/artifact/__init__.py",

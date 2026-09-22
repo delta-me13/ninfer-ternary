@@ -14,6 +14,7 @@
 #   just e2e <artifact.ninfer> [prompt]
 #   just bench <artifact.ninfer> [suite]
 #   just pack PQ2_0     打包三元制品
+#   just from-scratch PQ2_0   补丁 -> 编译 -> 测试 -> 打包，全自动
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -26,6 +27,7 @@ template      := env_var_or_default("NINFER_TERNARY_TEMPLATE", "/data/ninfer-tem
 gguf_dir      := env_var_or_default("NINFER_TERNARY_GGUF_DIR", "/data/Ternary-Bonsai-2-27B-gguf")
 artifact_dir  := env_var_or_default("NINFER_TERNARY_ARTIFACT_DIR", "/data/Ternary-Bonsai-2-27B-ninfer")
 py            := env_var_or_default("PYTHON", "python3")
+py_fallback   := env_var_or_default("NINFER_TERNARY_PYTHON_FALLBACK", "/tmp/venv-torch/bin/python")
 
 # 下面这些要传给被调用的脚本，所以必须 export。
 export NINFER_ROOT := env_var_or_default("NINFER_ROOT", "/root/ninfer-4090")
@@ -51,7 +53,8 @@ config:
       "NINFER_TERNARY_TEMPLATE" "{{template}}" \
       "NINFER_TERNARY_GGUF_DIR" "{{gguf_dir}}" \
       "NINFER_TERNARY_ARTIFACT_DIR" "{{artifact_dir}}" \
-      "PYTHON" "{{py}}"
+      "PYTHON" "{{py}}" \
+      "NINFER_TERNARY_PYTHON_FALLBACK" "{{py_fallback}}"
 
 # ---- 依赖 ----------------------------------------------------------------
 
@@ -151,13 +154,10 @@ pack kind:
     [[ -f "${gguf}" ]] || { echo "缺少 GGUF: ${gguf}" >&2; exit 1; }
     [[ -f "{{template}}" ]] || { echo "缺少模板: {{template}}" >&2; exit 1; }
     [[ -e "${out}" ]] && { echo "拒绝覆盖已存在的制品: ${out}" >&2; exit 1; }
-    # 打包器要真读张量，解释器没有 numpy 会在装完模板之后才以 traceback 收场。
-    "{{py}}" -c "import numpy" >/dev/null 2>&1 || {
-      echo "解释器 {{py}} 没有 numpy；用 PYTHON=<带 numpy 的解释器> 重跑" >&2
-      exit 3
-    }
+    # 打包器要真读张量，发行版 python3 没有 numpy 会在装完模板之后才以 traceback 收场。
+    py="$(tools/verify/pick_python.sh "{{py}}" "{{py_fallback}}")"
     NINFER_TERNARY_TEMPLATE="{{template}}" NINFER_TERNARY_GGUF="${gguf}" \
-      "{{py}}" tools/pack.py build "${out}"
+      "${py}" tools/pack.py build "${out}"
 
 # 打包前自检：几何 + 解码 + 字节往返证明（只读，不写文件）
 pack-check kind:
@@ -165,8 +165,9 @@ pack-check kind:
     set -euo pipefail
     gguf="{{gguf_dir}}/Ternary-Bonsai-2-27B-{{kind}}.gguf"
     [[ -f "${gguf}" ]] || { echo "缺少 GGUF: ${gguf}" >&2; exit 1; }
+    py="$(tools/verify/pick_python.sh "{{py}}" "{{py_fallback}}")"
     NINFER_TERNARY_TEMPLATE="{{template}}" NINFER_TERNARY_GGUF="${gguf}" \
-      "{{py}}" tools/pack.py check
+      "${py}" tools/pack.py check
 
 # 列出制品里的对象与格式
 inspect artifact:
@@ -203,6 +204,17 @@ patch-export *add:
     uv run ninfer-ternary export --repo "{{NINFER_ROOT}}" "${args[@]}"
 
 # ---- 组合 ----------------------------------------------------------------
+
+# 干净检出一条命令走完：补丁 -> 编译 -> 测试 -> 打包三元制品
+from-scratch kind:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just patch-apply
+    just patch-check
+    just build
+    just build-tests
+    just ctest
+    just pack "{{kind}}"
 
 # 代码门禁 + 旋转 oracle + 端到端矩阵；不含构建，跑之前先 build 与 build-tests
 verify artifact:

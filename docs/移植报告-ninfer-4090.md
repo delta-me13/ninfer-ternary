@@ -404,6 +404,35 @@ WorkspaceArena leaf_workspace(storage);
 > （多轮里大部分轮次 84/84，失败的那一项每次还不一样）。两者都操作磁盘状态、没有资源锁，单独跑
 > 必过，且不在本补丁的改动范围内 —— 这是上游的并行测试缺陷，与本移植无关。
 
+### 4.10 干净检出可复现：从 clone 走到 ctest
+
+前面各节都是在"已经打完补丁的工作树"上测的。这一节回答另一个问题：**别人拿到本仓从头跑一遍，
+能不能得到同一棵树、同一套结果？**
+
+```bash
+git clone /root/ninfer-4090 /root/ninfer-fresh      # HEAD 是未改动的 v1.2.0（5c60b7c9）
+uv run ninfer-ternary apply --repo /root/ninfer-fresh
+diff -r --exclude=.git /root/ninfer-fresh /root/ninfer-4090
+```
+
+`apply` 写入 45 个文件，`diff -r` **无差异**，`check` 20/20 —— 工作树逐字节可重建。
+
+第一次做这个核对时 `diff` 报出一处差异，那正是这一节的价值所在：`tests/targets/qwen3_6_27b/test_load_plan.cpp`
+用了 `std::ranges::count_if` 却没包含 `<algorithm>`。gcc 14.3.1 + libstdc++ 15（Rocky Linux 10）
+不再传递包含它，单翻译单元 `-fsyntax-only` 直接报 `'count_if' is not a member of 'std::ranges'`。
+这一行当时只活在本机工作树里、**不在补丁清单中**，意味着任何人干净检出后跑 `just build-tests`
+都会断在测试目标上 —— 而 `just ctest` 是本包验证流程的一环。现已把该文件作为第 45 项纳入清单。
+
+| 步骤（全部在干净检出上）| 结果 |
+|---|---|
+| `ninfer-ternary apply --repo <fresh>` | 写入 **45** 个文件；`diff -r` 与已应用检出**无差异** |
+| `ninfer-ternary check --repo <fresh>` | **20/20** |
+| `build.sh incremental -- -DBUILD_TESTING=ON` | **726/726 目标，exit 0**（含此前编不过的 `ninfer_qwen3_6_27b_load_plan_test`）|
+| `ctest` | **84/84 通过，0 失败**（5 项 `real` 按设计跳过）|
+
+于是 `just from-scratch PQ2_0`（补丁 → 编译 → 测试 → 打包）是一条真能从零跑到尾的命令，而不是
+"先手工把文件覆盖进去再说"。
+
 ## 5. 未能验证的部分（诚实交代）
 
 - **PPL / 困惑度没有测**，而且用本仓现有工具测不了：CLI 没有 logprob / score 选项，`eval/` 是
