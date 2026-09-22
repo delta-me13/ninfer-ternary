@@ -192,11 +192,49 @@ v3 在前缀之后多了 16 字节摘要，JSON 目录从偏移 32 开始，且�
 `pack.py` 现在会先读容器前缀并把版本号直接报出来，而不是在偏移 16 上解一个不是 JSON 的东西、
 抛一个与真实原因无关的 `JSONDecodeError`。
 
+### 4.7 端到端：两个格式都真的答对了
+
+用真实权重（`/data/Ternary-Bonsai-2-27B-gguf`）转出两个制品，在本机 RTX 4090 上跑通：
+
+| 制品 | 体积 | 对象 | 引擎装载 | `17 * 23` 贪心输出 | decode |
+|---|---|---|---|---|---|
+| `Ternary-Bonsai-2-27B-PQ2_0.ninfer` | 10,533,732,876 B = 9.810 GiB | 1192 | 772 张量 / 6 资源，权重 6.70 GiB | **391** | 52.3 tok/s |
+| `Ternary-Bonsai-2-27B-PTQ1_0.ninfer` | 9,274,212,876 B = 8.637 GiB | 1192 | 772 张量 / 6 资源，权重 5.52 GiB | **391** | 15.8 tok/s |
+
+两个制品各 1192 个对象 = 模板 1190 + 新增的 `text/hadamard_signs` / `text/hadamard_widths`；
+借用模板 3.114 GiB（`frontend` 6、`text` 2、`mtp` 12、`vision` 333、`dflash2` 66）。
+
+#### 两个开关的双向对照（这才是关键）
+
+| 运行 | PQ2_0 | PTQ1_0 | 判读 |
+|---|---|---|---|
+| `NINFER_TERNARY_MMA=1` | `391` | `391` | 张量核路径 |
+| `NINFER_TERNARY_MMA=0` | `391` | `391` | SIMT 路径；**与上面逐字节一致** |
+| `NINFER_TERNARY_HADAMARD=0` | 乱码 | 乱码 | **负控分离**：关掉折叠基旋转立刻崩坏 |
+
+这三行合起来说明三件事：
+
+1. 两条内核路径（MMA / SIMT）在本模型上给出**完全相同**的贪心序列 —— 此前"MMA 只做过编译验证"
+   的空白在这里补上；
+2. 关掉旋转就彻底崩坏，证明折叠基旋转是**载荷路径**而不是可选项，也证明 `391` 不是碰巧；
+3. 两种三元解码（PQ2_0 的 2-bit 码、PTQ1_0 的 base-3 三元 + 高位平面）都正确 —— 它们走的是不同的解码原子。
+
+PTQ1_0 比 PQ2_0 慢 3.3 倍（15.8 vs 52.3 tok/s）符合预期：PTQ1_0 每组 26 字节装 128 个权重且要做
+base-3 的除法与取模，PQ2_0 每组 34 字节、纯移位取码。
+
+复现命令（`--no-thinking --greedy` 让两条路径逐字节可比）：
+
+```bash
+NINFER_TERNARY_MMA=1 /data/ninfer-build/apps/ninfer <artifact.ninfer> \
+  --prompt "What is 17 * 23? Answer with just the number." \
+  --max-new 16 --max-context 512 --no-thinking --greedy --seed 1234
+```
+
 ## 5. 未能验证的部分（诚实交代）
 
-- **端到端数值（PPL / 困惑度 / 接受率）没有复跑**：需要真实的 Ternary Bonsai 2 27B 权重与一份
-  groupwise-int 模板制品，本仓按约定不分发权重。原先的数字（PPL 6.445、MTP K=2 96.7–130.8 t/s）
-  来自 Ada / Windows 线，**不能直接外推到本线**。
+- **PPL / 困惑度 / MTP 接受率没有测**。端到端的*正确性*已经验过（§4.7：两种格式都答对 `391`，
+  MMA 与 SIMT 逐字节一致，关掉旋转即崩坏），但质量分数没跑。原先的数字（PPL 6.445、
+  MTP K=2 96.7–130.8 t/s）来自 Ada / Windows 线，**不能直接外推到本线**。
 - **引擎自带测试有 2 项失败，且是本补丁引起的**（完整构建本身已通过，见 §4.5）：
   `ninfer_gdn_input_proj_conv_snapshot_test` 与 `ninfer_gdn_input_proj_conv_record_test` 断言
   "工作区查询值 == 执行高水位"，而本补丁让这两个容量查询对**非三元**父权重也按三元规模预留。
@@ -205,5 +243,5 @@ v3 在前缀之后多了 16 字节摘要，JSON 目录从偏移 32 开始，且�
   独立的 `WeightsProfile`（由 `Package::resolve_weights` 依据制品身份解析），让容量查询重新精确；
   涉及 `export/.../package.h` 枚举、`resolve_weights`、`variant.cpp` 的 14 处 `case` 与 `bindings.cpp` 的 4 处。
   其余 82/84 用例通过。
-- **MMA 路径只做了编译验证**，没有在真机上与 SIMT 路径做数值对照（需要真实三元权重）。
-  对照方法已备好：`NINFER_TERNARY_MMA=0/1` 跑同一窗口比数值。
+- **长上下文 / 并发下的数值一致性没有逐段比**。§4.7 只比了 `--max-context 512`、16 token 的贪心窗口；
+  MMA 与 SIMT 在更长的 prefill 与 `T>8` 的分块边界上是否仍逐字节一致，本次没有覆盖。

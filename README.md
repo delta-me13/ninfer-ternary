@@ -56,6 +56,7 @@ patches/
   changed-files/                         ← 整文件快照，覆盖即可生效（42 个文件：新增 14 / 修改 28）
 tools/
   pack.py                                ← GGUF（Bonsai 2 27B）→ 三元 .ninfer 打包器
+                                           （模板必须同时是 groupwise-int **且容器 v2**，见 patches/README §D）
   MAPPING.json                           ← 逐张量映射规格（权威）
   _bootstrap.py                          ← 统一的 ninfer 源码树定位（NINFER_ROOT）
   _ternary_ref.py                        ← 三元解码器的唯一实现（从 pack.py 再导出）
@@ -74,15 +75,31 @@ docs/依赖安装-RockyLinux10.md            ← 缺失系统库清单、安装�
 
 ---
 
+## 本次实际产出的制品
+
+用 `/data/Ternary-Bonsai-2-27B-gguf` 与钉在 v2 修订版 `dc370fb6295a` 的模板转出（约 19 GiB）：
+
+```text
+/data/Ternary-Bonsai-2-27B-ninfer/
+  Ternary-Bonsai-2-27B-PQ2_0.ninfer    10,533,732,876 B = 9.810 GiB   decode 52.3 tok/s
+  Ternary-Bonsai-2-27B-PTQ1_0.ninfer    9,274,212,876 B = 8.637 GiB   decode 15.8 tok/s
+```
+
+两个都能被引擎装载并答对 `17 * 23`。**本仓不收录这些制品**（由权重派生），重建步骤见
+[patches/README-改动说明.md](patches/README-改动说明.md) §D。
+
+---
+
 ## 验证状态（本机实测）
 
 | 项 | 结果 |
 |---|---|
-| 全部 C++ 翻译单元语法检查 | **122 个中 116 通过**；6 个失败经复测只有 2 个是真缺系统包（`libavcodec/*`、`curl/curl.h`），另 4 个是构建期生成物（`ui.h`、`xgrammar/*`）与探测命令自身的 include 路径缺失，均与本补丁无关 |
-| 三元 CUDA 翻译单元（nvcc 13.3 / sm_89）| **3/3 编译通过**，唯一告警是上游既有的 `launch_pq2_gemv declared but never referenced` |
-| 折叠基旋转内核（RTX 4090 真机 + numpy oracle）| **6/6 PASS**，负控全部分离（正确的 rel_l2 ≈ 2.2e-3，负控 ≥ 0.97）|
+| **完整构建 sm_89 / sm_86** | **各 exit 0**。三元内核在两个架构下都有原生 cubin，架构支持未被收窄（§4.5）|
+| **引擎自带测试 `ctest`** | **82/84 通过**；2 项失败由本补丁引起，根因与修法见 §5 |
+| **端到端（真权重 + RTX 4090）** | 两种格式都装载并答对 `17 * 23` → **391**；`MMA=1` 与 `MMA=0` **逐字节一致**；关掉折叠基旋转即崩坏（§4.7）|
+| 折叠基旋转内核（真机 + numpy oracle）| **6/6 PASS**，负控全部分离（正确的 rel_l2 ≈ 2.2e-3，负控 ≥ 0.97）|
 | `tools/artifact` 三元几何 vs 引擎 | `[248320,5120]` → PTQ1_0 278,118,400 B / PQ2_0 337,715,200 B，与引擎侧注释逐字节一致 |
-| Python 包 | 12 用例通过（含 torch 用例）；`ruff check` / `ruff format --check` 干净 |
+| Python 包 | 14 用例通过（正负控只用临时目录与仓内快照）；`ruff check` / `ruff format --check` / `mypy` 全绿 |
 | 独立 harness 编译 | `rot_test.cu` / `gemm_test.cu` 均零错误零警告（`gemm_test.cu` 原本编译不过，见下）|
 
 ---
