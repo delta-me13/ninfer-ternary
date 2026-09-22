@@ -230,11 +230,74 @@ NINFER_TERNARY_MMA=1 /data/ninfer-build/apps/ninfer <artifact.ninfer> \
   --max-new 16 --max-context 512 --no-thinking --greedy --seed 1234
 ```
 
+### 4.8 一致性矩阵、MTP 与 KV 量化
+
+#### 内核路径 × prefill 分块 × 制品格式
+
+同一 prompt（bat-and-ball）、`--no-thinking --greedy --seed 1234 --max-new 192 --max-context 2048`，
+比较 CLI 的 `--print-token-ids` 给出的 token 序列：
+
+| 用例 | PQ2_0 | PTQ1_0 |
+|---|---|---|
+| `NINFER_TERNARY_MMA=1` + `--prefill-chunk 128` | `9ab7f3dfe667` | `9ab7f3dfe667` |
+| `NINFER_TERNARY_MMA=1` + `--prefill-chunk 1024` | `9ab7f3dfe667` | `9ab7f3dfe667` |
+| `NINFER_TERNARY_MMA=0` + `--prefill-chunk 128` | `9ab7f3dfe667` | `9ab7f3dfe667` |
+| `NINFER_TERNARY_MMA=0` + `--prefill-chunk 1024` | `9ab7f3dfe667` | `9ab7f3dfe667` |
+| 负控 `NINFER_TERNARY_HADAMARD=0` | `2c037e1df050` | `0e7f23175819` |
+
+10 次正控全部落在同一个 158 token 的摘要上；两个负控都分离。同一配置连跑 3 次也是同一摘要，
+所以这个比对本身是可复现的，不是抖动。一键复跑：
+
+```bash
+NINFER_CLI=/data/ninfer-build/apps/ninfer tools/verify/e2e_ternary.sh <artifact.ninfer>
+```
+
+#### MTP 投机
+
+| 配置 | token 序列 | 接受率 | 接受长度 |
+|---|---|---|---|
+| 无投机 | `9ab7f3dfe667` | – | – |
+| `--spec mtp --draft-tokens 4` | `9ab7f3dfe667` | 74.38% | 3.98 tok/轮 |
+| `--spec mtp --draft-tokens 4 --lm-head-draft` | `9ab7f3dfe667` | 76.92% | 4.08 tok/轮 |
+| `--spec mtp --draft-tokens 8 --lm-head-draft --no-cuda-graph` | `9ab7f3dfe667` | 58.48% | 5.68 tok/轮 |
+
+投机不改变贪心输出 —— 这是投机解码必须成立的性质，这里成立。
+
+#### 上游缺陷：MTP 与 CUDA Graph 在较大草稿窗口下更新失败
+
+`--spec mtp --draft-tokens 8`（及更大）在 `--max-new 192 --max-context 2048` 下会中止：
+
+```text
+error: CUDA Graph executable update failed: cudaErrorGraphExecUpdateFailure (update result 2)
+```
+
+加上 `--no-cuda-graph` 即恢复，且输出与基准逐字节一致。**这不是本补丁引起的**：同样的边界在
+官方非三元制品 `qwen3_8_27b.v2.ninfer` 上逐条重现（≤7 通过、≥8 失败，两个制品的边界与报错完全一致）。
+窗口 8 以上的失败还与配置有关 —— `Say hi.` + `--max-new 64` 下 8..15 全部通过 —— 所以这是 CUDA Graph
+拓扑与"草稿窗口 × 上下文/生成长度"组合的问题，不是单纯的阈值。
+
+#### KV 量化（PQ2_0，pp512 / tg128，3 次重复 + 1 次预热）
+
+| `--kv-dtype` | pp512 t/s | tg128 t/s |
+|---|---|---|
+| `bf16`（默认）| 196.9 ± 62.0 | 67.4 ± 7.8 |
+| `int8` | 274.8 ± 27.6 | 61.2 ± 7.6 |
+| `rk8v4` | 261.1 ± 5.0 | 48.1 ± 4.3 |
+| `rk4v4` | 258.4 ± 0.6 | 50.5 ± 8.4 |
+| `rk4v4-e8` | 256.4 ± 15.9 | 44.3 ± 1.6 |
+| `rk2v4-e8` | 265.2 ± 5.4 | 48.9 ± 5.3 |
+| `rk4v4-e8` + MTP4 + 优化草稿头 | 272.5 ± 23.7 | 39.0 ± 3.0 |
+
+六种 KV 存储都能在折叠三元制品上装载并跑完 pp512/tg128。注意 `ninfer_bench` 的 `--kv-dtype` 取值集合
+是 `bf16 | int8 | rk8v4 | rk4v4 | rk4v4-e8 | rk2v4-e8`，与 CLI 的 `--kv-dtype` 命名不同（`e8` 不是合法值）。
+
 ## 5. 未能验证的部分（诚实交代）
 
-- **PPL / 困惑度 / MTP 接受率没有测**。端到端的*正确性*已经验过（§4.7：两种格式都答对 `391`，
-  MMA 与 SIMT 逐字节一致，关掉旋转即崩坏），但质量分数没跑。原先的数字（PPL 6.445、
-  MTP K=2 96.7–130.8 t/s）来自 Ada / Windows 线，**不能直接外推到本线**。
+- **PPL / 困惑度没有测**，而且用本仓现有工具测不了：CLI 没有 logprob / score 选项，`eval/` 是
+  EvalScope 驱动的任务评测（IFBench / AIME / GPQA），不产出困惑度；要测需要另写一个打分入口。
+  原先的 PPL 6.445 来自 Ada / Windows 线，**不能直接外推到本线**。
+- **长上下文没有压到极限**。§4.8 的一致性矩阵在 `--max-context 2048`、158 token 生成上成立；
+  32k / 128k 量级的 prefill 与并发批（`--max-concurrency`）下的逐字节一致性未覆盖。
 - **引擎自带测试有 2 项失败，且是本补丁引起的**（完整构建本身已通过，见 §4.5）：
   `ninfer_gdn_input_proj_conv_snapshot_test` 与 `ninfer_gdn_input_proj_conv_record_test` 断言
   "工作区查询值 == 执行高水位"，而本补丁让这两个容量查询对**非三元**父权重也按三元规模预留。
@@ -243,5 +306,6 @@ NINFER_TERNARY_MMA=1 /data/ninfer-build/apps/ninfer <artifact.ninfer> \
   独立的 `WeightsProfile`（由 `Package::resolve_weights` 依据制品身份解析），让容量查询重新精确；
   涉及 `export/.../package.h` 枚举、`resolve_weights`、`variant.cpp` 的 14 处 `case` 与 `bindings.cpp` 的 4 处。
   其余 82/84 用例通过。
-- **长上下文 / 并发下的数值一致性没有逐段比**。§4.7 只比了 `--max-context 512`、16 token 的贪心窗口；
-  MMA 与 SIMT 在更长的 prefill 与 `T>8` 的分块边界上是否仍逐字节一致，本次没有覆盖。
+- **MTP 在基准口径下没有收益**：`ninfer_bench` 的 pp512/tg128 组合里 `rk4v4-e8` + MTP4 的 tg128 是
+  39.0 t/s，反而低于不开投机的 44.3 t/s；这与 CLI 贪心下 74–77% 的接受率口径不同（基准自己采样）。
+  MTP 在本机这条线上到底划不划算，需要单独一轮基准才说得清，本次没有下结论。

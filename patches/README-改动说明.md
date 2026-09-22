@@ -161,6 +161,17 @@ python3 tools/verify/check_embedding.py <artifact.ninfer> /tmp/embed.post.T8
 
 `check_embedding.py` 对比"引擎实际写出的 embedding"与"按制品载荷独立解码 + 逆变换"的结果，T=1 与 T>1 都要跑。
 
+### E4. 一致性矩阵（需要真实制品与 GPU）
+
+```bash
+NINFER_CLI=<build>/apps/ninfer tools/verify/e2e_ternary.sh <artifact.ninfer>
+```
+
+同一 prompt 下比 `--print-token-ids` 给出的**贪心 token 序列**：内核路径（`NINFER_TERNARY_MMA=0/1`）×
+prefill 分块（128 / 1024）× MTP 投机必须逐字节一致，而负控（`NINFER_TERNARY_HADAMARD=0`）必须不一致。
+只看"文本看起来对"是不够的 —— 关掉旋转之后输出会变成乱码，这条负控就是用来证明比对有判别力的。
+本机结果：两个制品各 6 条用例，5 条正控同摘要、负控分离，`RESULT: PASS`。
+
 ---
 
 ## F. 本包顺手修掉的原包缺陷
