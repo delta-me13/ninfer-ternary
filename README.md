@@ -88,6 +88,7 @@ tools/
 src/ninfer_ternary/                       ← 应用 / 状态检查 / 自检 / 快照导出 的 CLI
 tests/                                   ← 20 个用例（含负控；只用临时目录与仓内快照，不依赖机器状态）
 docs/移植报告-ninfer-4090.md             ← 判定依据 + 实测证据 + 未验证部分
+docs/权重档案与容量规划.md               ← weights_id 改变了什么：逐条容量查询对照 + 配对实测 + 边界
 docs/依赖安装-RockyLinux10.md            ← 缺失系统库清单、安装命令、版本校验与备选方案
 ```
 

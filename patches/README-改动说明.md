@@ -138,6 +138,9 @@ python3 tools/pack.py build out.ninfer
 > 那是**少留**，不是保守的多留。反过来，给 groupwise 制品按三元预留则只是浪费，但会被引擎自带的
 > `gdn_input_proj_conv_{snapshot,record}` 测试判为"查询值与执行高水位不符"。
 >
+> 逐条容量查询的两档对照、三个方向的失效模式，以及"档案是否改变总容量"的配对实测，见
+> [`docs/权重档案与容量规划.md`](../docs/权重档案与容量规划.md)。
+>
 > **因此：拿到本包之前打好的三元制品，必须重打。** 引擎对 `qwen3.8-27b` 只接受两种身份
 > （`groupwise-int` → `GroupwiseIntW8Endpoints`、`folded-ternary` → `FoldedTernary`），其余组合在
 > `resolve_weights()` 直接抛错，不会静默按错误的档案跑下去。
