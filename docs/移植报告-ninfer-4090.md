@@ -452,10 +452,10 @@ diff -r --exclude=.git /root/ninfer-fresh /root/ninfer-4090
 
 | 项 | 实测 |
 |---|---|
-| 安装耗时 | **6 分 32 秒**（user 49 分 08 秒；本机 128 核，`-j 128`）|
+| 安装耗时 | **6 分 31 秒**（user 49 分 05 秒；本机 128 核，`-j 128`）|
 | wheel | `ninfer_ternary-0.3.0-py3-none-linux_x86_64.whl`，**234,295,913 B = 223 MiB** |
 | 装好的工具环境 | **517 MiB**（引擎本体）；带 `[convert]` 时 5.0 GiB（多一个 CUDA 版 torch）|
-| 临时树 | 构建期在 `$TMPDIR` 下的 `ninfer-ternary-{wheel,build}-*`，安装结束**已全部删除**（`ls /tmp/ninfer-ternary-*` 为空）|
+| 临时树 | 构建期只在 `$TMPDIR/ninfer-ternary/` 这一个根下开 `wheel-*` 与 `build-*`；编译子进程的 `TMPDIR` 指到 `build-*/tmp`，实测 nvcc 的 `tmpxft_*` 全落在那里。装完 `ls /tmp/ninfer-ternary* /tmp/tmpxft_*` 皆为空（空的根目录也会被删掉），`/tmp` 总量回到 10 MiB |
 | 装好的 `ninfer` | `--prompt '17 * 23 =' --no-thinking` 输出 **391**，exit 0 |
 | 装好的 `ninfer-convert` | 不设 `NINFER_ROOT`、只用随包的上游制品模块跑完 `check`：真实 20 GiB 模板 + 7 GiB GGUF，**1 分 55 秒**，`RESULT: OK` |
 

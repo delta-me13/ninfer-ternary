@@ -1,8 +1,8 @@
 """拉取上游 ninfer、打上三元补丁、自检、编译，并把临时树清干净。
 
 这条流程有两个调用方：wheel 构建后端（uv tool install 时自动跑）与仓库内的
-build-engine 子命令。两者的纪律一致 —— 克隆出来的源码树、CMake 构建目录全部落在系统
-临时目录里，用完即删；只有最终的可执行文件被拷走。
+build-engine 子命令。两者的纪律一致 —— 克隆出来的源码树、CMake 构建目录、编译子进程的
+临时文件全部落在 $TMPDIR/ninfer-ternary 这一个根下，用完即删；只有最终的可执行文件被拷走。
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from .assets import ENGINE_PROGRAMS
 from .checks import check_all
 from .manifest import PatchManifest, changed_files_root, default_manifest_path
 from .patchset import apply_patch_set
+from .scratch import prune_temp_root, temp_root
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ _LOGGER = logging.getLogger(__name__)
 TARGET_REPO_ENV = "NINFER_TERNARY_TARGET_REPO"
 #: 直接复用一棵已有的目标检出，跳过克隆。
 SOURCE_ENV = "NINFER_TERNARY_SOURCE"
-#: 临时目录的父目录；默认交给系统 TMPDIR。
+#: 临时树的父目录；默认是 $TMPDIR/ninfer-ternary。
 SCRATCH_ENV = "NINFER_TERNARY_BUILD_ROOT"
 #: 置 1 时保留临时树，便于排查编译失败。
 KEEP_ENV = "NINFER_TERNARY_KEEP_BUILD"
@@ -40,8 +41,8 @@ TESTS_ENV = "NINFER_TERNARY_RUN_TESTS"
 #: 服务端内嵌 Web UI 的开关；置 0 可跳过 3 MiB 的 GitHub 发布包下载。
 UI_ENV = "NINFER_TERNARY_ENABLE_UI"
 
-#: 临时目录前缀。带 ninfer- 前缀是为了系统临时目录里一眼能认出来。
-_SCRATCH_PREFIX = "ninfer-ternary-build-"
+#: 临时树的名字前缀。所有临时物都在 ninfer-ternary/ 根下，前缀只区分用途。
+_SCRATCH_PREFIX = "build-"
 
 #: 允许的 CUDA 架构。上游用 FATAL_ERROR 硬拒其它架构，这里提前拦下更省事。
 _SUPPORTED_ARCHES = ("86", "89")
@@ -99,18 +100,24 @@ def _require_tool(name: str) -> None:
         raise EngineError(f"缺少构建依赖: {name}（见 README 的依赖安装一节）")
 
 
-def _run(command: Sequence[str], *, cwd: Path | None = None) -> None:
+def _run(
+    command: Sequence[str],
+    *,
+    cwd: Path | None = None,
+    env: Mapping[str, str] | None = None,
+) -> None:
     """执行外部命令，失败即抛。
 
     Args:
         command: 命令与参数。
         cwd: 工作目录；None 表示继承当前目录。
+        env: 子进程环境；None 表示继承当前环境。
 
     Raises:
         EngineError: 命令返回非零。
     """
     _LOGGER.info("执行: %s", " ".join(command))
-    completed = subprocess.run(command, cwd=cwd, check=False)
+    completed = subprocess.run(command, cwd=cwd, env=env, check=False)
     if completed.returncode != 0:
         raise EngineError(f"命令失败（exit {completed.returncode}）: {' '.join(command)}")
 
@@ -125,7 +132,7 @@ class BuildRequest:
         arch: CUDA 架构，86 或 89。
         jobs: 编译并行度。
         source: 已有的目标检出；给定时跳过克隆，且不会被删除。
-        scratch: 临时目录的父目录；None 表示系统临时目录。
+        scratch: 临时树的父目录；None 表示 $TMPDIR/ninfer-ternary。
         keep: 是否保留临时树。
         run_tests: 是否编译并运行引擎自带测试套件。
     """
@@ -235,6 +242,23 @@ def _land(source: Path) -> tuple[int, int]:
     return passed, len(findings)
 
 
+def _compile_scratch(build_root: Path) -> Path:
+    """返回编译子进程使用的 TMPDIR，落在临时树内部。
+
+    Args:
+        build_root: CMake 构建目录。
+
+    Returns:
+        已创建的目录路径。
+
+    Raises:
+        OSError: 目录无法创建。
+    """
+    path = build_root.parent / "tmp"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def _compile(source: Path, build_root: Path, request: BuildRequest) -> dict[str, Path]:
     """配置并编译引擎可执行文件。
 
@@ -268,7 +292,10 @@ def _compile(source: Path, build_root: Path, request: BuildRequest) -> dict[str,
     ui = os.environ.get(UI_ENV, "").strip()
     if ui:
         configure.append(f"-DNINFER_ENABLE_UI={1 if ui.lower() in _TRUE_VALUES else 0}")
-    _run(configure)
+    # nvcc 把 tmpxft_* 中间文件丢在 TMPDIR 根下且名字里没有项目标识，只有把子进程的
+    # TMPDIR 指进临时树，清理才是"删一个目录"而不是"认路径猜归属"。
+    child_env = dict(os.environ, TMPDIR=str(_compile_scratch(build_root)))
+    _run(configure, env=child_env)
     _run(
         [
             "cmake",
@@ -278,10 +305,15 @@ def _compile(source: Path, build_root: Path, request: BuildRequest) -> dict[str,
             str(request.jobs),
             "--target",
             *ENGINE_PROGRAMS,
-        ]
+        ],
+        env=child_env,
     )
     if request.run_tests:
-        _run(["ctest", "--output-on-failure", "-j", str(request.jobs)], cwd=build_root)
+        _run(
+            ["ctest", "--output-on-failure", "-j", str(request.jobs)],
+            cwd=build_root,
+            env=child_env,
+        )
     return {name: build_root / "apps" / name for name in ENGINE_PROGRAMS}
 
 
@@ -338,6 +370,23 @@ def _collect_upstream(source: Path, destination: Path) -> Path:
     return target
 
 
+def scratch_parent(request: BuildRequest) -> Path:
+    """返回本次构建的临时树父目录，不存在时创建。
+
+    Args:
+        request: 构建请求；其 scratch 为 None 时落到项目临时根。
+
+    Returns:
+        已存在的父目录路径。
+
+    Raises:
+        OSError: 目录无法创建。
+    """
+    parent = request.scratch if request.scratch is not None else temp_root()
+    parent.mkdir(parents=True, exist_ok=True)
+    return parent
+
+
 def build_engine(
     destination: Path,
     request: BuildRequest,
@@ -357,7 +406,7 @@ def build_engine(
     Raises:
         EngineError: 任一阶段失败；临时目录仍会按 request.keep 处理。
     """
-    scratch = Path(tempfile.mkdtemp(prefix=_SCRATCH_PREFIX, dir=request.scratch))
+    scratch = Path(tempfile.mkdtemp(prefix=_SCRATCH_PREFIX, dir=scratch_parent(request)))
     _LOGGER.info("临时目录: %s", scratch)
     try:
         if request.source is not None:
@@ -383,3 +432,4 @@ def build_engine(
             _LOGGER.warning("按 %s 保留临时目录: %s", KEEP_ENV, scratch)
         else:
             shutil.rmtree(scratch, ignore_errors=True)
+            prune_temp_root()

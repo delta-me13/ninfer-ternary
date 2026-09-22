@@ -55,7 +55,9 @@ verify() {
   done
 
   echo "--- 头文件可达性（-I 取自 pkg-config）"
-  local probe="/tmp/ninfer_dep_probe_$$.cc"
+  local scratch="${NINFER_TERNARY_TMPDIR:-${TMPDIR:-/tmp}/ninfer-ternary}"
+  mkdir -p "${scratch}"
+  local probe="${scratch}/dep_probe_$$.cc"
   printf '#include <libavformat/avformat.h>\n#include <libavcodec/avcodec.h>\n#include <libavutil/imgutils.h>\n#include <libswscale/swscale.h>\n#include <curl/curl.h>\nint main(){return 0;}\n' > "${probe}"
   if g++ -std=c++20 -fsyntax-only $(pkg-config --cflags libavformat libavcodec libavutil libswscale libcurl 2>/dev/null) "${probe}" 2>/dev/null; then
     echo "  通过  ffmpeg + curl 头文件可编译"

@@ -264,7 +264,7 @@ all artifact:
 
 # ---- 清理 ----------------------------------------------------------------
 
-# 清掉本仓产生的全部中间目录：构建目录、oracle 产物、字节码缓存与系统临时目录里的临时树。
+# 清掉本仓产生的全部中间目录：构建目录、oracle 产物、字节码缓存与项目专属的临时根。
 # 刻意不碰 out/ —— 那是验证与跑分的结果（证据），不是中间产物。
 clean:
     #!/usr/bin/env bash
@@ -273,8 +273,16 @@ clean:
       echo "删除 $cache"
       rm -rf "$cache"
     done < <(find . -name .venv -prune -o -name __pycache__ -type d -print0)
-    for path in "{{build_root}}" "{{build_root_86}}" "{{test_root}}" "{{bench_root}}" out/oracle /tmp/ninfer-ternary-*; do
+    for path in "{{build_root}}" "{{build_root_86}}" "{{test_root}}" "{{bench_root}}" out/oracle; do
       [[ -e "$path" ]] || continue
       echo "删除 $path"
       rm -rf "$path"
+    done
+    # 临时物都在 ninfer-ternary/ 一个根下；带前缀的两种写法是改名前后遗留的散落目录。
+    for base in "${NINFER_TERNARY_TMPDIR:-${TMPDIR:-/tmp}}" /tmp; do
+      for path in "${base}/ninfer-ternary" "${base}/nifer-ternary" "${base}/ninfer-ternary-"* "${base}/nifer-ternary-"*; do
+        [[ -e "${path}" ]] || continue
+        echo "删除 ${path}"
+        rm -rf "${path}"
+      done
     done

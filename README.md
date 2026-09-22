@@ -152,7 +152,7 @@ nvfp4）会在后面以张量名对不上的形式失败。
     just e2e <制品>     # 端到端一致性矩阵（结果在 out/e2e-<制品名>）
     just bench <制品>   # 标准化跑分（结果在 out/bench-<制品名>-<时间戳>）
     just pack PQ2_0     # 打包三元制品
-    just clean          # 清掉构建目录、字节码缓存与临时目录
+    just clean          # 清掉构建目录、字节码缓存与临时根
 
 补丁侧的子命令（`manifest` / `status` / `apply` / `check` / `export`）走
 `uv run python -m ninfer_ternary`，不随 `uv tool install` 安装 —— 它们只在开发与验证时需要。
@@ -189,7 +189,7 @@ nvfp4）会在后面以张量名对不上的形式失败。
 | MTP 投机 | 输出与无投机逐字节一致，接受率 74-77%（draft 4）|
 | 长上下文 | 2685 与 11043 token 的 prompt 全部同摘要；三元 MMA prefill 约为 SIMT 的 4.2-4.4 倍 |
 | 干净检出可复现 | `git clone` v1.2.0 -> 打补丁 -> `diff -r` 无差异；全量重编 726/726 exit 0，`ctest` 84/84 |
-| **`uv tool install` 一条命令** | 现场拉取 v1.2.0 -> 落地 45 文件 -> 自检 20/20 -> 编译 -> 打成 223 MiB wheel -> **删除全部临时树**，全程 **6 分 32 秒**；装好的 `ninfer` 直接答对 `17 * 23` |
+| **`uv tool install` 一条命令** | 现场拉取 v1.2.0 -> 落地 45 文件 -> 自检 20/20 -> 编译 -> 打成 223 MiB wheel -> **临时根整个删除**（`/tmp` 不留文件也不留空目录），全程 **6 分 31 秒**；装好的 `ninfer` 直接答对 `17 * 23` |
 
 ---
 

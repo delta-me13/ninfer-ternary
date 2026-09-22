@@ -2,11 +2,12 @@
 
 标准后端只搬运 Python 文件，而本项目的卖点是"装完就能跑"，所以把编译搬进 build_wheel：
 克隆上游 → 落补丁 → 落地自检 → CMake/Ninja 编译 → 把可执行文件、上游制品读写模块与补丁
-一起打进 wheel → 删掉临时树。临时树落在系统临时目录，除非显式要求保留。
+一起打进 wheel → 删掉临时树。临时树落在 $TMPDIR/ninfer-ternary 下，除非显式要求保留。
 
 环境变量：
     NINFER_TERNARY_SKIP_BUILD=1  只装 Python 侧，不编译，wheel 退化为纯 Python
     NINFER_TERNARY_KEEP_BUILD=1  保留临时树，编译失败时排查用
+    NINFER_TERNARY_TMPDIR        改写临时根目录，默认 $TMPDIR/ninfer-ternary
     其余见 ninfer_ternary.engine 的模块说明。
 """
 
@@ -33,13 +34,14 @@ if str(_SRC) not in sys.path:
 
 from ninfer_ternary.engine import BuildRequest, build_engine  # noqa: E402
 from ninfer_ternary.manifest import PatchManifest, default_manifest_path  # noqa: E402
+from ninfer_ternary.scratch import prune_temp_root, temp_root  # noqa: E402
 
 _LOGGER = logging.getLogger("ninfer_ternary.build_backend")
 _GENERATOR = "ninfer-ternary build_backend"
 _MODULE = "ninfer_ternary"
 _SKIP_BUILD_ENV = "NINFER_TERNARY_SKIP_BUILD"
 _TRUE_VALUES = ("1", "true", "yes", "on")
-_SCRATCH_PREFIX = "ninfer-ternary-wheel-"
+_SCRATCH_PREFIX = "wheel-"
 _WHEEL_TAG_BINARY = "py3-none-linux_x86_64"
 _WHEEL_TAG_PURE = "py3-none-any"
 _ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
@@ -406,23 +408,26 @@ def build_wheel(
     """
     _configure_logging()
     project = _project()
-    with tempfile.TemporaryDirectory(prefix=_SCRATCH_PREFIX) as staging_raw:
-        staging = Path(staging_raw)
-        binaries: dict[str, Path] = {}
-        upstream: Path | None = None
-        if _flag(_SKIP_BUILD_ENV):
-            _LOGGER.warning("跳过引擎编译: %s=1", _SKIP_BUILD_ENV)
-        else:
-            manifest = PatchManifest.load(default_manifest_path())
-            result = build_engine(
-                staging / "bin",
-                BuildRequest.from_environment(manifest),
-                assets_dir=staging,
-            )
-            binaries = dict(result.programs)
-            upstream = staging / "upstream"
-            _LOGGER.info("落地自检: %d/%d", result.self_check_passed, result.self_check_total)
-        return _assemble(Path(wheel_directory), project, binaries, upstream)
+    try:
+        with tempfile.TemporaryDirectory(prefix=_SCRATCH_PREFIX, dir=temp_root()) as staging_raw:
+            staging = Path(staging_raw)
+            binaries: dict[str, Path] = {}
+            upstream: Path | None = None
+            if _flag(_SKIP_BUILD_ENV):
+                _LOGGER.warning("跳过引擎编译: %s=1", _SKIP_BUILD_ENV)
+            else:
+                manifest = PatchManifest.load(default_manifest_path())
+                result = build_engine(
+                    staging / "bin",
+                    BuildRequest.from_environment(manifest),
+                    assets_dir=staging,
+                )
+                binaries = dict(result.programs)
+                upstream = staging / "upstream"
+                _LOGGER.info("落地自检: %d/%d", result.self_check_passed, result.self_check_total)
+            return _assemble(Path(wheel_directory), project, binaries, upstream)
+    finally:
+        prune_temp_root()
 
 
 def prepare_metadata_for_build_wheel(

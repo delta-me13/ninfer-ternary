@@ -81,22 +81,23 @@ release）。完全离线时见 §7.3。
 | 4 | 把两个可执行文件、上游制品读写模块、打包器与补丁打进 wheel | wheel 文件 |
 | 5 | 删除整个临时树 | 无 |
 
-临时树落在系统临时目录（`$TMPDIR`，默认 `/tmp`），前缀是 `ninfer-ternary-wheel-` 与
-`ninfer-ternary-build-`。**宿主机的工程目录里不会留下 `ninfer-*` 目录**；只有第 4 步的 wheel
+所有临时物都落在**一个项目专属根目录**下：`$TMPDIR/ninfer-ternary/`（默认 `/tmp/ninfer-ternary/`），
+里面再按用途分 `wheel-*` 与 `build-*`。编译子进程的 `TMPDIR` 也被指到临时树内部，所以连 nvcc 的
+`tmpxft_*` 中间文件都在根里。**宿主机的工程目录里不会留下 `ninfer-*` 目录**；只有第 4 步的 wheel
 被 uv 收进缓存。
 
-> 用 `kill -9` 打断构建会跳过清理（进程被杀就没人执行删除），`/tmp` 下会留下临时树，
-> 手动删掉即可。`just clean` 也会清它。
+> 用 `kill -9` 打断构建会跳过清理（进程被杀就没人执行删除），根目录会留下临时树；
+> `just clean` 删掉整个根，并顺手清掉改名前的 `ninfer-ternary-*` / `nifer-ternary-*` 遗留目录。
 
 本机实测（Rocky Linux 10 / RTX 4090 / 128 核）：
 
 | 指标 | 值 |
 |---|---|
-| 安装总耗时 | **6 分 32 秒**（`-j 128`）|
+| 安装总耗时 | **6 分 31 秒**（`-j 128`）|
 | 生成的 wheel | **223 MiB**（`ninfer_ternary-0.3.0-py3-none-linux_x86_64.whl`）|
 | 装好的工具环境 | **517 MiB**（引擎本体，两个可执行文件约 480 MiB）|
 | 带 `[convert]` 时 | **5.0 GiB**（多一个 CUDA 版 torch）|
-| 构建期 `$TMPDIR` 占用 | 约 **0.7 GiB**（临时源码树 + 构建目录），安装结束归零 |
+| 构建期临时根占用 | 约 **0.7 GiB**（临时源码树 + 构建目录 + nvcc 中间文件），安装结束连根目录一起消失 |
 
 编译并行度默认取本机 CPU 核数（本机 128），可用 `NINFER_TERNARY_JOBS` 压到更小。
 
@@ -123,6 +124,7 @@ release）。完全离线时见 §7.3。
 | `NINFER_TERNARY_JOBS` | CPU 核数 | 编译并行度 |
 | `NINFER_TERNARY_SKIP_BUILD` | 关 | 置 `1` 只装 Python 侧，不编译引擎（wheel 退化为纯 Python）|
 | `NINFER_TERNARY_KEEP_BUILD` | 关 | 置 `1` 保留临时树，编译失败时排查用 |
+| `NINFER_TERNARY_TMPDIR` | 空 | 改写临时根目录，默认 `$TMPDIR/ninfer-ternary` |
 | `NINFER_TERNARY_ENABLE_UI` | 上游默认（开）| 置 `0` 跳过服务端 Web UI 资源下载，`ninfer-serve` 用空 UI 桩 |
 | `NINFER_TERNARY_RUN_TESTS` | 关 | 置 `1` 连引擎自带测试套件一起编译并 `ctest` |
 | `NINFER_TERNARY_TARGET_REPO` | manifest 里的上游地址 | 换成内网镜像或本地检出 |
@@ -183,7 +185,7 @@ release）。完全离线时见 §7.3。
 
     NINFER_TERNARY_KEEP_BUILD=1 uv tool install --force . 2>&1 | tee install.log
 
-失败时日志里会打印临时目录路径（`临时目录: /tmp/ninfer-ternary-build-xxxx`），构建日志与
+失败时日志里会打印临时目录路径（`临时目录: /tmp/ninfer-ternary/build-xxxx`），构建日志与
 CMake 缓存都还在那里。
 
 ---
@@ -200,7 +202,7 @@ CMake 缓存都还在那里。
 | `ninfer` 提示找不到引擎 | 装的是 `SKIP_BUILD` 变体 | 用默认方式重装 |
 | `ninfer-convert` 提示缺少 torch | 安装时没带 `convert` 额外项 | `uv tool install --force ".[convert]"` |
 | 运行时设备检查失败 | 引擎架构与显卡不符 | `NINFER_TERNARY_ARCH=86`（3090）重装 |
-| `/tmp` 里留下 `ninfer-ternary-*` | 构建被 `kill -9` 打断 | 手动删除，或 `just clean` |
+| 临时根里留下 `wheel-*` / `build-*` | 构建被 `kill -9` 打断 | `just clean`（删掉整个 `$TMPDIR/ninfer-ternary`）|
 
 ---
 

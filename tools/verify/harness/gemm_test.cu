@@ -8,7 +8,7 @@
 //
 // Build（Linux）：
 //   nvcc -O2 -std=c++20 -arch=sm_89 -I <ninfer>/src -o gemm_test gemm_test.cu
-// 输出目录由 NINFER_TERNARY_OUT_DIR 指定，默认 ./bm2out/。
+// 输出目录由 NINFER_TERNARY_OUT_DIR 指定，默认 ./out/oracle/。
 
 #include "ops/linear/ternary/ternary_rotation_kernels.cuh"
 #include "ops/linear/ternary/ternary_rowsplit_gemm.cuh"
@@ -25,10 +25,10 @@
 
 namespace {
 
-// 输出目录：NINFER_TERNARY_OUT_DIR 覆盖，默认当前工作目录下的 bm2out/。
+// 输出目录：NINFER_TERNARY_OUT_DIR 覆盖，默认当前工作目录下的 out/oracle/。
 const char* out_dir() {
     const char* value = std::getenv("NINFER_TERNARY_OUT_DIR");
-    return (value == nullptr || *value == '\0') ? "./bm2out/" : value;
+    return (value == nullptr || *value == '\0') ? "./out/oracle/" : value;
 }
 constexpr int kRows            = 4096;   // text/layers/0/gdn/query_key
 constexpr int kCols            = 5120;

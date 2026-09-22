@@ -7,14 +7,16 @@
 #   NINFER_ROOT   ninfer 源码树根目录（必填，harness 直接编译引擎同一份真代码）
 #   NINFER_ARCH   CUDA 架构，默认 89（本机 4090）
 #   PYTHON        带 numpy 的解释器，默认 python3
+#   NINFER_TERNARY_TMPDIR  临时根目录，默认 $TMPDIR/ninfer-ternary
 set -euo pipefail
 
 : "${NINFER_ROOT:?请先设置 NINFER_ROOT=<ninfer 源码树根目录>}"
 arch="${NINFER_ARCH:-89}"
 python="${PYTHON:-python3}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-out_dir="${1:-${PWD}/bm2out}"
-work="${TMPDIR:-/tmp}/ninfer-ternary-harness"
+out_dir="${1:-${PWD}/out/oracle}"
+# 临时物统一落在项目专属根下，just clean 删这一个目录就够。
+work="${NINFER_TERNARY_TMPDIR:-${TMPDIR:-/tmp}/ninfer-ternary}/oracle-harness"
 
 # oracle 用 numpy 逐例比对；解释器选错会在跑完真机之后才以 traceback 收场，
 # 那样既浪费一次 GPU 运行，也容易让"内核跑起来了"被误读成"验证通过"。
