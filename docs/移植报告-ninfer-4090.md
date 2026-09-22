@@ -105,7 +105,7 @@ T=1 时 token 主序与行主序完全重合，所以 T=1 全绿 ≠ 正确。"*
 ### 4.4 制品几何
 
 `tools/artifact` 与引擎侧 `storage_layouts.cpp::quant_geometry()` 的一致性由
-`nifer-ternary check` 与 `tests/test_checks.py` 双重把守：`[248320, 5120]` 下
+`ninfer-ternary check` 与 `tests/test_checks.py` 双重把守：`[248320, 5120]` 下
 PTQ1_0_G128 = 278,118,400 B、PQ2_0_G128 = 337,715,200 B，与引擎注释里写死的数字逐字节一致。
 
 ### 4.5 架构支持：三元移植没有收窄任何东西

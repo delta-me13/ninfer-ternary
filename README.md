@@ -1,4 +1,4 @@
-# nifer-ternary · 把 NInfer 三元能力适配到 ninfer-4090
+# ninfer-ternary · 把 NInfer 三元能力适配到 ninfer-4090
 
 把 [`ninfer-ada-ternary`](https://www.modelscope.cn/shensanshu/ninfer-ada-ternary.git)（NInfer 三元 /
 Ternary Bonsai 2 27B，Ada sm_89 + Windows 线）的成果，**适配到
@@ -29,12 +29,12 @@ Ternary Bonsai 2 27B，Ada sm_89 + Windows 线）的成果，**适配到
 | `just config` | — | 打印 NINFER_ROOT / 构建目录 / 模板 / GGUF / 解释器 |
 | `just deps` | `tools/verify/install_deps_rocky10.sh check` | 构建依赖自检（Rocky Linux 10）|
 | `just deps-install` | `… install` | 安装构建依赖（需要 root）|
-| `just patch-manifest` | `uv run nifer-ternary manifest` | 补丁清单摘要 |
-| `just patch-status` | `uv run nifer-ternary status --repo $NINFER_ROOT` | 目标检出相对本补丁的状态 |
-| `just patch-dry-run` | `uv run nifer-ternary apply --repo $NINFER_ROOT --dry-run` | 试运行，只报告不写文件 |
-| `just patch-apply` | `uv run nifer-ternary apply --repo $NINFER_ROOT` | 落盘改动（分叉文件需 `--force`）|
-| `just patch-export` | `uv run nifer-ternary export --repo $NINFER_ROOT` | 用检出内容刷新快照 / 清单 / 聚合 diff |
-| `just patch-check` | `uv run nifer-ternary check --repo $NINFER_ROOT` | 落地自检（不需要 torch，也不需要 GPU）|
+| `just patch-manifest` | `uv run ninfer-ternary manifest` | 补丁清单摘要 |
+| `just patch-status` | `uv run ninfer-ternary status --repo $NINFER_ROOT` | 目标检出相对本补丁的状态 |
+| `just patch-dry-run` | `uv run ninfer-ternary apply --repo $NINFER_ROOT --dry-run` | 试运行，只报告不写文件 |
+| `just patch-apply` | `uv run ninfer-ternary apply --repo $NINFER_ROOT` | 落盘改动（分叉文件需 `--force`）|
+| `just patch-export` | `uv run ninfer-ternary export --repo $NINFER_ROOT` | 用检出内容刷新快照 / 清单 / 聚合 diff |
+| `just patch-check` | `uv run ninfer-ternary check --repo $NINFER_ROOT` | 落地自检（不需要 torch，也不需要 GPU）|
 | `just check` | `ruff check . && ruff format --check . && mypy . && pytest` | 代码门禁 |
 | `just build [86\|89]` | `NINFER_ARCH=89 tools/verify/build.sh` | 构建 |
 | `just build-tests` | `… -- -DBUILD_TESTING=ON` | 构建测试目标 |

@@ -111,7 +111,7 @@ def _unified_diff(path: str, upstream: bytes | None, current: Path) -> str:
     Raises:
         ExportError: diff 以 0/1 之外的状态退出。
     """
-    with tempfile.TemporaryDirectory(prefix="nifer-ternary-export-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="ninfer-ternary-export-") as tmp:
         left = Path(tmp) / "upstream"
         left.write_bytes(upstream if upstream is not None else b"")
         completed = _run(

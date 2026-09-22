@@ -1,4 +1,4 @@
-# nifer-ternary 的操作入口。
+# ninfer-ternary 的操作入口。
 #
 # 每条配方只做一件事：把一条已经跑通过的命令序列固定下来。路径全部走变量，换机器改环境变量
 # 即可，不需要动这个文件；`just config` 会打印解析结果。
@@ -176,23 +176,23 @@ inspect artifact:
 
 # 打印补丁清单摘要
 patch-manifest:
-    uv run nifer-ternary manifest
+    uv run ninfer-ternary manifest
 
 # 检查 ninfer 检出相对本补丁的状态
 patch-status:
-    uv run nifer-ternary status --repo "{{NINFER_ROOT}}"
+    uv run ninfer-ternary status --repo "{{NINFER_ROOT}}"
 
 # 试运行应用补丁（只报告，不写文件）
 patch-dry-run:
-    uv run nifer-ternary apply --repo "{{NINFER_ROOT}}" --dry-run
+    uv run ninfer-ternary apply --repo "{{NINFER_ROOT}}" --dry-run
 
 # 应用补丁（覆盖目标检出中的同名文件）
 patch-apply:
-    uv run nifer-ternary apply --repo "{{NINFER_ROOT}}"
+    uv run ninfer-ternary apply --repo "{{NINFER_ROOT}}"
 
 # 对目标检出执行落地自检
 patch-check:
-    uv run nifer-ternary check --repo "{{NINFER_ROOT}}"
+    uv run ninfer-ternary check --repo "{{NINFER_ROOT}}"
 
 # 用检出的当前内容刷新补丁快照 / 清单摘要 / 聚合 diff；额外参数是"新纳入清单"的路径
 patch-export *add:
@@ -200,7 +200,7 @@ patch-export *add:
     set -euo pipefail
     args=()
     for path in {{add}}; do args+=(--add "${path}"); done
-    uv run nifer-ternary export --repo "{{NINFER_ROOT}}" "${args[@]}"
+    uv run ninfer-ternary export --repo "{{NINFER_ROOT}}" "${args[@]}"
 
 # ---- 组合 ----------------------------------------------------------------
 

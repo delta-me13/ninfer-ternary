@@ -1,4 +1,4 @@
-"""nifer-ternary：把 NInfer 三元移植改动落到 ninfer-4090 检出上的工具集。"""
+"""ninfer-ternary：把 NInfer 三元移植改动落到 ninfer-4090 检出上的工具集。"""
 
 from .manifest import FileEntry, ManifestError, PatchManifest
 from .patchset import FileState, PatchError, PatchReport, apply_patch_set, inspect

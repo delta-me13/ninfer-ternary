@@ -30,10 +30,10 @@ def _build_parser() -> argparse.ArgumentParser:
         配置好的解析器。
     """
     parser = argparse.ArgumentParser(
-        prog="nifer-ternary",
+        prog="ninfer-ternary",
         description="将 NInfer 三元（Ternary Bonsai 2 27B）移植改动应用到 ninfer-4090 检出。",
     )
-    parser.add_argument("--version", action="version", version=f"nifer-ternary {__version__}")
+    parser.add_argument("--version", action="version", version=f"ninfer-ternary {__version__}")
     parser.add_argument("-v", "--verbose", action="store_true", help="输出调试日志")
     parser.add_argument("--manifest", type=Path, default=None, help="补丁清单路径")
     parser.add_argument("--snapshot", type=Path, default=None, help="补丁快照目录")

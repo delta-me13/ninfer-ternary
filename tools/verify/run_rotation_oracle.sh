@@ -14,7 +14,7 @@ arch="${NINFER_ARCH:-89}"
 python="${PYTHON:-python3}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 out_dir="${1:-${PWD}/bm2out}"
-work="${TMPDIR:-/tmp}/nifer-ternary-harness"
+work="${TMPDIR:-/tmp}/ninfer-ternary-harness"
 
 # oracle 用 numpy 逐例比对；解释器选错会在跑完真机之后才以 traceback 收场，
 # 那样既浪费一次 GPU 运行，也容易让"内核跑起来了"被误读成"验证通过"。

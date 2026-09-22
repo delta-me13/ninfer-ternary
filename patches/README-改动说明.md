@@ -2,7 +2,7 @@
 
 > **本包是把 `ninfer-ada-ternary` 的三元能力适配到 `ninfer-4090`（v1.2.0 线，sm_86 / sm_89，支持 Linux）的可移植快照。**
 > 按目录名覆盖回 ninfer 源码树根目录 → **必须重编**（见 §D）→ 按 §E 做验证。
-> 用 `nifer-ternary apply --repo <ninfer 树> --dry-run` 可以先看会写哪些文件。
+> 用 `ninfer-ternary apply --repo <ninfer 树> --dry-run` 可以先看会写哪些文件。
 
 | 项 | 值 |
 |---|---|
