@@ -108,10 +108,10 @@ Rocky Linux 10 上可以用仓内脚本一次装齐（见 [依赖安装](docs/�
 | `--max-context` / `--prefill-chunk` | 上下文长度与预填充分块（决定显存里的工作区大小）|
 | `--kv-dtype bf16\|int8\|rk8v4\|rk4v4\|rk4v4-e8\|rk2v4-e8` | KV 缓存精度，越小越省显存 |
 | `--spec mtp --draft-tokens 4` | MTP 投机解码，输出与不开投机逐字节一致 |
-| `--no-cuda-graph` | 关掉 CUDA Graph（排查问题或显存吃紧时用）|
+| `--no-cuda-graph` | 关闭 CUDA Graph（排查问题或显存紧张时使用）|
 
 本机（RTX 4090，PQ2_0）实测：prefill **251–274 t/s**（`pp` 口径）、解码 **42–56 t/s**（CUDA Graph 开）。
-完整跑分（两个三元制品各 20 条用例）、测量口径与噪声来源见 [基准测试](docs/基准测试.md)；
+完整基准测试（两个三元制品各 20 条用例）、计量口径与读数离散性见 [基准测试](docs/基准测试.md)；
 脚本与 suite 定义见 [tools/bench/README.md](tools/bench/README.md)。
 
 ---
@@ -151,7 +151,7 @@ nvfp4）会在后面以张量名对不上的形式失败。
     just build-engine   # 拉上游 -> 打补丁 -> 自检 -> 编译，临时树自动清理
     just oracle         # 旋转内核 vs numpy FP64
     just e2e <制品>     # 端到端一致性矩阵（结果在 out/e2e-<制品名>）
-    just bench <制品>   # 标准化跑分（结果在 out/bench-<制品名>-<时间戳>）
+    just bench <制品>   # 标准化基准测试（结果在 out/bench-<制品名>-<时间戳>）
     just pack PQ2_0     # 打包三元制品
     just clean          # 清掉构建目录、字节码缓存与临时根
 
@@ -163,7 +163,7 @@ nvfp4）会在后面以张量名对不上的形式失败。
     patches/            45 个文件的整文件快照 + 清单摘要（改动清单见 patches/README-改动说明.md）
     tools/pack.py       GGUF -> .ninfer 打包器（ninfer-convert 的本体）
     tools/verify/       oracle、端到端矩阵、依赖安装、落地自检
-    tools/bench/        固定语料/重复/热身的标准化跑分
+    tools/bench/        固定语料/重复/预热的标准化基准测试
     build_backend.py    uv tool install 时拉取、打补丁、编译、清理
     docs/               移植报告、权重档案、依赖安装、本工具安装
 
@@ -174,7 +174,7 @@ nvfp4）会在后面以张量名对不上的形式失败。
 | [把本仓当工具用](docs/uv-工具安装.md) | `uv tool install` 全流程、环境变量、离线安装、排错 |
 | [移植报告](docs/移植报告-ninfer-4090.md) | 判定依据、实测证据、未验证部分 |
 | [权重档案与容量规划](docs/权重档案与容量规划.md) | 制品档案改变了什么、容量查询逐条对照 |
-| [基准测试](docs/基准测试.md) | 完整跑分：口径、两个三元制品的读数、噪声来源、困惑度待测 |
+| [基准测试](docs/基准测试.md) | 完整基准测试：计量口径、两个三元制品的读数、读数离散性与 prefill 双峰、困惑度待测 |
 | [依赖安装](docs/依赖安装-RockyLinux10.md) | Rocky Linux 10 缺失库清单与安装命令 |
 | [改动说明](patches/README-改动说明.md) | 45 个文件的改动清单、与上游的刻意差异 |
 
@@ -192,7 +192,7 @@ nvfp4）会在后面以张量名对不上的形式失败。
 | 长上下文 | 2685 与 11043 token 的 prompt 全部同摘要；三元 MMA prefill 约为 SIMT 的 4.2-4.4 倍 |
 | 干净检出可复现 | `git clone` v1.2.0 -> 打补丁 -> `diff -r` 无差异；全量重编 726/726 exit 0，`ctest` 84/84 |
 | 基准测试 | 两个三元制品各 20 条用例（panel / prefill / decode / kv / mtp / graph，各 5 次重复）：PQ2_0 prefill **251–274 t/s**（`pp` 口径）、decode **42–56 t/s**；CUDA Graph 关掉后 decode 从 48.0 掉到 21.4 t/s；PTQ1_0 的 prefill 约是 PQ2_0 的 1/5.5、decode 约 1/3，换来省 1.26 GB 显存 |
-| 基准测试里的一处未解释读数 | PQ2_0 的 `pp+tg` prefill 逐次在 ~230–320 与 ~838 t/s 两档间跳（20 次里 5 次落到快档）。已排除频率（同期 SM 2730 MHz 不变）、MMA/SIMT 与分块；需要 CUDA Graph + 单块 512 + 请求带 decode。引用 prefill 请用中位数，详见 [基准测试](docs/基准测试.md) §6 |
+| 基准测试中的一处未归因读数 | PQ2_0 的 `pp+tg` prefill 逐次在约 230–320 与约 838 t/s 两峰间交替（20 次中 5 次进入高速峰）。已排除 GPU 频率（同期 SM 2730 MHz 不变）、MMA/SIMT 路径与分块；必要条件为 CUDA Graph 开启 + 单块 512 + 请求内含 decode。引用 prefill 时使用中位数，详见 [基准测试](docs/基准测试.md) §6 |
 | **`uv tool install` 一条命令** | 现场拉取 v1.2.0 -> 落地 45 文件 -> 自检 20/20 -> 编译 -> 打成 223 MiB wheel -> **临时根整个删除**（`/tmp` 不留文件也不留空目录），全程 **6 分 31 秒**；装好的 `ninfer` 直接答对 `17 * 23` |
 
 ---
