@@ -73,7 +73,7 @@ NINFER_ROOT=/path/to/ninfer-4090 tools/bench/bench.sh <artifact.ninfer> [suite .
 
 ## 本机实测（RTX 4090 / sm_89 / CUDA 13.3）
 
-上表不是示例，是这套脚本在 `Ternary-Bonsai-2-27B-PQ2_0.ninfer` 上跑出来的（`-r 5 --warmup 1
+上表并非示例，而是这套脚本在 `Ternary-Bonsai-2-27B-PQ2_0.ninfer` 上执行得到的（`-r 5 --warmup 1
 --prefill-chunk 1024`，`manifest.txt` 里能查到制品摘要与引擎修订）。
 
 > 这是一次**历史读数**。同参数与随后两次完整基准测试相比：`rsd` 小的行相差 2% – 10%，`rsd` 大的行相差
@@ -88,7 +88,7 @@ NINFER_ROOT=/path/to/ninfer-4090 tools/bench/bench.sh <artifact.ninfer> [suite .
 | standard | pp512+tg128 | 397.9 | 48.1 | 同一次生成里的两段 |
 | kv | bf16 / int8 / rk8v4 / rk4v4 / rk4v4-e8 / rk2v4-e8 | 427 / 327 / 332 / 383 / 263 / 290 | 41.6 / 43.4 / 45.7 / 44.2 / 41.5 / 44.8 | `-pg 512,128` |
 | mtp | off / draft4 / draft8(无图) | 450 / 291 / 258 | 46.3 / 47.4 / 25.6 | 接受率 0% / 32.6% / 16.6% |
-| graph | 开 / 关 | 396 / 267 | 49.4 / 24.2 | 图对 decode 的收益在这里最直白 |
+| graph | 开 / 关 | 396 / 267 | 49.4 / 24.2 | 图对 decode 的收益在此最为直接 |
 
 以下两点由脚本的输出直接呈现，不构成结论：
 
