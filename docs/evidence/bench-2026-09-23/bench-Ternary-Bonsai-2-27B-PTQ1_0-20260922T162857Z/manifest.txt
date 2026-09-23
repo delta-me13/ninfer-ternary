@@ -1,0 +1,25 @@
+artifact        /data/Ternary-Bonsai-2-27B-ninfer/Ternary-Bonsai-2-27B-PTQ1_0.ninfer
+artifact_bytes  9274212876
+artifact_sha256 dada1b43e4a3b95b8e15e9779e35f99adb2dc7f296a50618d5d677a8a8caf6a7
+bench           /data/ninfer-build-bench/bench/ninfer_bench
+bench_sha256    c56f1e3de24044f879862dc92a1062eaa4977e71c7b0fea844766181350b7b7c
+corpus          /root/ninfer-4090/bench/fixtures/bench_corpus.ids
+corpus_sha256   27e4f63c17efe3f89b5cf278b3b1a42a737316ed4044d7d0d1d52437059d1002
+reps            5
+warmup          1
+prefill_chunk   1024
+device          -
+extra           -
+suites          all
+started_utc     2026-09-22T16:29:13Z
+gpu             NVIDIA GeForce RTX 4090
+driver          610.57.04
+engine_rev      5c60b7c9b455231795c09da21a9fbb6aa53f08e5
+engine_dirty    33
+--- NINFER_* ---
+NINFER_BENCH=/data/ninfer-build-bench/bench/ninfer_bench
+NINFER_BUILD_ROOT=/data/ninfer-build
+NINFER_CLI=/data/ninfer-build/apps/ninfer
+NINFER_JOBS=16
+NINFER_ROOT=/root/ninfer-4090
+finished_utc    2026-09-22T17:35:07Z

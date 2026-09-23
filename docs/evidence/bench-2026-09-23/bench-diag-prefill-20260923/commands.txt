@@ -1,0 +1,24 @@
+# 档位证据（docs/基准测试.md §6）的原始数据与命令，PQ2_0，2026-09-23，驱动 615.71.09
+B=/data/ninfer-build-bench/bench/ninfer_bench
+A=/data/Ternary-Bonsai-2-27B-ninfer/Ternary-Bonsai-2-27B-PQ2_0.ninfer
+C=/root/ninfer-4090/bench/fixtures/bench_corpus.ids
+
+# 一律 -o json，逐次速率 = n_prompt / reps[i].timings.prefill_seconds
+a-pptg-r20.json          -pg 512,128 -r 20 --warmup 3 --prefill-chunk 1024
+b-pp512-r20.json         -p 512     -r 20 --warmup 3 --prefill-chunk 1024
+c-mma0.json              NINFER_TERNARY_MMA=0 同 a，-r 8
+d-mma1.json              NINFER_TERNARY_MMA=1 同 a，-r 8
+e-chunk128.json          -pg 512,128 -r 8 --warmup 3 --prefill-chunk 128
+f-nograph.json           -pg 512,128 -r 8 --warmup 3 --prefill-chunk 1024 --no-cuda-graph
+g-pp2048tg128.json       -pg 2048,128 -r 8 --warmup 3 --prefill-chunk 1024
+h-tg128-r20.json         -n 128     -r 20 --warmup 3 --prefill-chunk 1024
+i-chunk512.json          -pg 512,128 -r 8 --warmup 3 --prefill-chunk 512
+j-chunk2048.json         -pg 512,128 -r 8 --warmup 3 --prefill-chunk 2048
+k-gen8.json              -pg 512,8   -r 20 --warmup 3 --prefill-chunk 1024
+l-pp1024tg128.json       -pg 1024,128 -r 8 --warmup 3 --prefill-chunk 1024
+m-pp512tg128-noprime.json -p 512 -pg 512,128 -r 8 --warmup 3 --prefill-chunk 1024
+n-align-r20.json         -pg 512,128 -r 20 --warmup 3，另用 100 ms nvidia-smi 采样（未归档）
+o-align-nwarm-r20.json   -pg 512,128 -r 20 --warmup 0，与 clocks-align-r20.csv 对齐
+
+# clocks-align-r20.csv：timestamp,clocks.sm,power.draw,temperature.gpu,utilization.gpu（100 ms）
+# align2-start.txt：采样开始时（同时也是 bench 进程启动前）的 epoch 秒

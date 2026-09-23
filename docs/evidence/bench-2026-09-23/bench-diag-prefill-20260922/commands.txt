@@ -1,0 +1,9 @@
+# 档位证据（本文 §6.2）的原始数据与命令，PQ2_0，2026-09-22，ninfer_bench sha256 c56f1e3d…
+B=/data/ninfer-build-bench/bench/ninfer_bench
+A=/data/Ternary-Bonsai-2-27B-ninfer/Ternary-Bonsai-2-27B-PQ2_0.ninfer
+C=/root/ninfer-4090/bench/fixtures/bench_corpus.ids
+
+# d1：-pg 512,128 -r 5 --warmup 1 --prefill-chunk 1024 -o json
+# d2：-pg 512,128 -r 8 --warmup 3 --prefill-chunk 1024 -o json
+# d3：-p 512,2048 -n 128 -pg 512,128 -r 8 --warmup 3 --prefill-chunk 1024 -o json
+# 逐次速率 = n_prompt / reps[i].timings.prefill_seconds

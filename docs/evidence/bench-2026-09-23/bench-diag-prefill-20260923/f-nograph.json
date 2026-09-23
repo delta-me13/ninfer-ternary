@@ -1,0 +1,230 @@
+{
+  "schema_version": 11,
+  "artifact_type": "ninfer_bench_report",
+  "tool": "ninfer_bench",
+  "command": "/data/ninfer-build-bench/bench/ninfer_bench --weights /data/Ternary-Bonsai-2-27B-ninfer/Ternary-Bonsai-2-27B-PQ2_0.ninfer --corpus /root/ninfer-4090/bench/fixtures/bench_corpus.ids -o json --output-file /tmp/attr/f-nograph.json -pg 512,128 -r 8 --warmup 3 --prefill-chunk 1024 --no-cuda-graph",
+  "environment": {"gpu_name": "NVIDIA GeForce RTX 4090", "cuda_runtime_version": "13.3", "cuda_driver_version": "13.4", "device_id": 0},
+  "artifact": {"path": "/data/Ternary-Bonsai-2-27B-ninfer/Ternary-Bonsai-2-27B-PQ2_0.ninfer", "file_size_bytes": 10533732876},
+  "load": {
+    "target": "qwen3_8_27b",
+    "weights_id": "folded-ternary",
+    "load_seconds": 4.982697904,
+    "upload_seconds": 3.689673894,
+    "artifact_bytes_read": 7202726725,
+    "host_to_device_bytes": 7189880832,
+    "peak_staging_bytes": 268435456,
+    "tensor_count": 772,
+    "resource_count": 6
+  },
+  "memory": {
+    "device": 0,
+    "max_context": 640,
+    "kv_capacity_mode": "explicit",
+    "kv_capacity": 640,
+    "kv_capacity_page_groups": 10,
+    "kv_capacity_max_page_groups": 10,
+    "kv_cache": "bf16",
+    "weights": {"capacity_bytes": 7189886976, "used_bytes": 7189886976, "peak_used_bytes": 7189886976},
+    "sequence": {"capacity_bytes": 358435584, "used_bytes": 358435584, "peak_used_bytes": 358435584},
+    "workspace": {"capacity_bytes": 113095680, "used_bytes": 0, "peak_used_bytes": 0},
+    "request_transient": {"capacity_bytes": 0, "used_bytes": 0, "peak_used_bytes": 0},
+    "minimum_runtime_reservation_bytes": 471531264,
+    "kv_capacity_increment_bytes": 0,
+    "runtime_reservation_bytes": 471531264,
+    "available_after_weights_bytes": 17731354624,
+    "available_after_startup_bytes": 17255301120,
+    "kv_capacity_headroom_bytes": 0,
+    "planned_slack_bytes": 17259823360,
+    "cuda_graph_allowance_bytes": 0,
+    "cuda_graph_observed_bytes": 0,
+    "kv_payload_bytes": 41943040
+  },
+  "config": {
+    "max_context": 640,
+    "prefill_chunk": 1024,
+    "kv_cache": "bf16",
+    "mtp_draft_tokens": 0,
+    "proposal_head": "full",
+    "use_cuda_graph": false,
+    "decode_path": "eager",
+    "decode_graph_prime": {"primed": false, "output_tokens": 0},
+    "repetitions": 8,
+    "warmup": 3,
+    "corpus_path": "/root/ninfer-4090/bench/fixtures/bench_corpus.ids",
+    "corpus_tokens": 65536
+  },
+  "tests": [
+    {
+      "label": "pp512+tg128",
+      "kind": "pp+tg",
+      "n_prompt": 512,
+      "n_gen": 128,
+      "requested_output_tokens": 129,
+      "prefill_tok_s_mean": 269.9781039,
+      "prefill_tok_s_stddev": 48.49369789,
+      "decode_output_tok_s_mean": 21.22896828,
+      "decode_output_tok_s_stddev": 0.4800669798,
+      "decode_engine_tok_s_mean": 21.22896828,
+      "decode_engine_tok_s_stddev": 0.4800669798,
+      "prepare_seconds_mean": 6.8335e-06,
+      "prepare_seconds_stddev": 7.282085651e-07,
+      "prefill_seconds_mean": 1.977201131,
+      "prefill_seconds_stddev": 0.520436097,
+      "decode_seconds_mean": 6.032210675,
+      "decode_seconds_stddev": 0.1371512966,
+      "total_seconds_mean": 8.010268844,
+      "total_seconds_stddev": 0.5239914983,
+      "workspace_peak_bytes": 113095680,
+      "workspace_allocator_peak_bytes": 90476544,
+      "speculative": {
+        "enabled": false,
+        "draft_window": 0,
+        "rounds": 0,
+        "drafted_tokens": 0,
+        "accepted_tokens": 0,
+        "fallback_steps": 0,
+        "acceptance_rate": null,
+        "acceptance_length": null,
+        "accepted_per_position": []
+      },
+      "reps": [
+        {
+          "generated_output_tokens": 129,
+          "decode_output_tokens": 128,
+          "decode_engine_tokens": 128,
+          "timings": {"prepare_seconds": 5.972e-06, "vision_seconds": 0, "prefill_seconds": 1.845523293, "decode_seconds": 5.912393263, "total_seconds": 7.758809532},
+          "speculative": {
+            "enabled": false,
+            "draft_window": 0,
+            "rounds": 0,
+            "drafted_tokens": 0,
+            "accepted_tokens": 0,
+            "fallback_steps": 0,
+            "acceptance_rate": null,
+            "acceptance_length": null,
+            "accepted_per_position": []
+          }
+        },
+        {
+          "generated_output_tokens": 129,
+          "decode_output_tokens": 128,
+          "decode_engine_tokens": 128,
+          "timings": {"prepare_seconds": 7.635e-06, "vision_seconds": 0, "prefill_seconds": 3.2356937, "decode_seconds": 6.057153083, "total_seconds": 9.293699133},
+          "speculative": {
+            "enabled": false,
+            "draft_window": 0,
+            "rounds": 0,
+            "drafted_tokens": 0,
+            "accepted_tokens": 0,
+            "fallback_steps": 0,
+            "acceptance_rate": null,
+            "acceptance_length": null,
+            "accepted_per_position": []
+          }
+        },
+        {
+          "generated_output_tokens": 129,
+          "decode_output_tokens": 128,
+          "decode_engine_tokens": 128,
+          "timings": {"prepare_seconds": 7.425e-06, "vision_seconds": 0, "prefill_seconds": 1.848807098, "decode_seconds": 5.910123528, "total_seconds": 7.7597729},
+          "speculative": {
+            "enabled": false,
+            "draft_window": 0,
+            "rounds": 0,
+            "drafted_tokens": 0,
+            "accepted_tokens": 0,
+            "fallback_steps": 0,
+            "acceptance_rate": null,
+            "acceptance_length": null,
+            "accepted_per_position": []
+          }
+        },
+        {
+          "generated_output_tokens": 129,
+          "decode_output_tokens": 128,
+          "decode_engine_tokens": 128,
+          "timings": {"prepare_seconds": 7.565e-06, "vision_seconds": 0, "prefill_seconds": 1.720205682, "decode_seconds": 6.201333277, "total_seconds": 7.922400418},
+          "speculative": {
+            "enabled": false,
+            "draft_window": 0,
+            "rounds": 0,
+            "drafted_tokens": 0,
+            "accepted_tokens": 0,
+            "fallback_steps": 0,
+            "acceptance_rate": null,
+            "acceptance_length": null,
+            "accepted_per_position": []
+          }
+        },
+        {
+          "generated_output_tokens": 129,
+          "decode_output_tokens": 128,
+          "decode_engine_tokens": 128,
+          "timings": {"prepare_seconds": 7.274e-06, "vision_seconds": 0, "prefill_seconds": 1.620792324, "decode_seconds": 6.153061479, "total_seconds": 7.774709973},
+          "speculative": {
+            "enabled": false,
+            "draft_window": 0,
+            "rounds": 0,
+            "drafted_tokens": 0,
+            "accepted_tokens": 0,
+            "fallback_steps": 0,
+            "acceptance_rate": null,
+            "acceptance_length": null,
+            "accepted_per_position": []
+          }
+        },
+        {
+          "generated_output_tokens": 129,
+          "decode_output_tokens": 128,
+          "decode_engine_tokens": 128,
+          "timings": {"prepare_seconds": 6.112e-06, "vision_seconds": 0, "prefill_seconds": 1.984640871, "decode_seconds": 5.91063651, "total_seconds": 7.896132427},
+          "speculative": {
+            "enabled": false,
+            "draft_window": 0,
+            "rounds": 0,
+            "drafted_tokens": 0,
+            "accepted_tokens": 0,
+            "fallback_steps": 0,
+            "acceptance_rate": null,
+            "acceptance_length": null,
+            "accepted_per_position": []
+          }
+        },
+        {
+          "generated_output_tokens": 129,
+          "decode_output_tokens": 128,
+          "decode_engine_tokens": 128,
+          "timings": {"prepare_seconds": 6.693e-06, "vision_seconds": 0, "prefill_seconds": 1.845036736, "decode_seconds": 5.91050769, "total_seconds": 7.756389868},
+          "speculative": {
+            "enabled": false,
+            "draft_window": 0,
+            "rounds": 0,
+            "drafted_tokens": 0,
+            "accepted_tokens": 0,
+            "fallback_steps": 0,
+            "acceptance_rate": null,
+            "acceptance_length": null,
+            "accepted_per_position": []
+          }
+        },
+        {
+          "generated_output_tokens": 129,
+          "decode_output_tokens": 128,
+          "decode_engine_tokens": 128,
+          "timings": {"prepare_seconds": 5.992e-06, "vision_seconds": 0, "prefill_seconds": 1.716909343, "decode_seconds": 6.202476568, "total_seconds": 7.920236497},
+          "speculative": {
+            "enabled": false,
+            "draft_window": 0,
+            "rounds": 0,
+            "drafted_tokens": 0,
+            "accepted_tokens": 0,
+            "fallback_steps": 0,
+            "acceptance_rate": null,
+            "acceptance_length": null,
+            "accepted_per_position": []
+          }
+        }
+      ]
+    }
+  ]
+}

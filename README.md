@@ -152,6 +152,7 @@ nvfp4），将在后续以张量名不匹配的形式失败。
     just oracle         # 旋转内核 vs numpy FP64
     just e2e <制品>     # 端到端一致性矩阵（结果在 out/e2e-<制品名>）
     just bench <制品>   # 标准化基准测试（结果在 out/bench-<制品名>-<时间戳>）
+    just evidence <名称> # 把 out/ 的证据冻结进 docs/evidence/（报告定稿时执行）
     just pack PQ2_0     # 打包三元制品
     just clean          # 清理构建目录、字节码缓存与临时根
 
@@ -165,7 +166,7 @@ nvfp4），将在后续以张量名不匹配的形式失败。
     tools/verify/       oracle、端到端矩阵、依赖安装、落地自检
     tools/bench/        固定语料/重复/预热的标准化基准测试
     build_backend.py    uv tool install 时拉取、打补丁、编译、清理
-    docs/               移植报告、权重档案、依赖安装、本工具安装
+    docs/               移植报告、权重档案、依赖安装、本工具安装、基准测试与证据快照
 
 主要文档：
 

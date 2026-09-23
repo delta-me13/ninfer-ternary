@@ -14,6 +14,7 @@
 #   just oracle             旋转内核 oracle
 #   just e2e <artifact.ninfer> [prompt]
 #   just bench <artifact.ninfer> [suite]
+#   just evidence <名称>    把 out/ 的证据冻结进 docs/evidence/
 #   just pack PQ2_0         打包三元制品
 #   just from-scratch PQ2_0 补丁 -> 编译 -> 测试 -> 打包，全自动
 #   just clean              清掉构建目录与临时目录
@@ -165,10 +166,32 @@ e2e artifact prompt="":
       tools/verify/e2e_ternary.sh "{{artifact}}"
     fi
 
-# 标准化跑分：固定语料 / 重复 / 预热 / 分块，产出 tidy CSV + 环境清单。
+# 标准化基准测试：固定语料 / 重复 / 预热 / 分块，产出 tidy CSV + 环境清单。
 # 结果落 out/bench-<制品名>-<UTC 时间戳>（证据，不删）；要改道设 NINFER_BENCH_OUT。
 bench artifact suite="standard":
     tools/bench/bench.sh "{{artifact}}" {{suite}}
+
+# 把 out/ 的当期证据冻结进 docs/evidence/<名称>/：报告定稿时执行一次，既有快照拒绝覆盖，
+# 跳过中间产物 out/oracle（它由 just clean 清理）。
+evidence name:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dest="docs/evidence/{{name}}"
+    if [[ -e "$dest" ]]; then
+      echo "已存在快照，拒绝覆盖: $dest" >&2
+      exit 1
+    fi
+    mkdir -p "$dest"
+    shopt -s nullglob
+    for src in out/*/; do
+      base="$(basename "$src")"
+      if [[ "$base" == "oracle" ]]; then
+        continue
+      fi
+      cp -a "$src" "$dest/$base"
+      echo "冻结 $base"
+    done
+    echo "证据已冻结到 $dest；请同步文档引用与 docs/evidence/README.md"
 
 # ---- 制品 ----------------------------------------------------------------
 

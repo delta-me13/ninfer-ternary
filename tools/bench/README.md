@@ -52,8 +52,11 @@ NINFER_ROOT=/path/to/ninfer-4090 tools/bench/bench.sh <artifact.ninfer> [suite .
 ```
 
 `results.csv` 的首两列是脚本加的，用来在合并后的表里定位来源；其余列就是 `ninfer_bench -o csv` 的
-原始列（`label,kind,n_prompt,...,decode_output_tok_s_mean,...`）。跨制品对列时，先确认两边的
+原始列（`label,kind,n_prompt,...,decode_output_tok_s_mean,...`）。跨制品对照时，先确认两边的
 `manifest.txt` 在 `prefill_chunk` / `kv_dtype` / `mtp_draft_tokens` / `weights_id` 上一致。
+
+`out/` 是会随每次运行增长的工作目录。报告定稿后用 `just evidence bench-<日期>` 把当期证据冻结进
+`docs/evidence/`，文件清单与章节对应关系见 [../../docs/evidence/README.md](../../docs/evidence/README.md)。
 
 ## 环境变量
 
