@@ -77,8 +77,9 @@ NINFER_ROOT=/path/to/ninfer-4090 tools/bench/bench.sh <artifact.ninfer> [suite .
 上表不是示例，是这套脚本在 `Ternary-Bonsai-2-27B-PQ2_0.ninfer` 上跑出来的（`-r 5 --warmup 1
 --prefill-chunk 1024`，`manifest.txt` 里能查到制品摘要与引擎修订）。
 
-> 这是一次**历史读数**，时段与本机当前状态不同。同参数与后来的完整跑分可以差 2% – 62%，差异集中在
-> 相对标准差大的行。完整跑分、噪声来源与"哪些数能当结论"见 [../../docs/基准测试.md](../../docs/基准测试.md)。
+> 这是一次**历史读数**，时段与本机当前状态不同。同参数与后来两次完整跑分相比：`rsd` 小的行差 2% – 10%，
+> `rsd` 大的行差 44% – 118%（PQ2_0 的 `pp+tg` prefill 在两个档位之间跳，见文档 §6）。完整跑分、噪声来源与
+> "哪些数能当结论"见 [../../docs/基准测试.md](../../docs/基准测试.md)。
 
 | suite | case | prefill t/s | decode t/s | 备注 |
 |---|---|---|---|---|
