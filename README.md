@@ -110,8 +110,9 @@ Rocky Linux 10 上可以用仓内脚本一次装齐（见 [依赖安装](docs/�
 | `--spec mtp --draft-tokens 4` | MTP 投机解码，输出与不开投机逐字节一致 |
 | `--no-cuda-graph` | 关掉 CUDA Graph（排查问题或显存吃紧时用）|
 
-本机（RTX 4090，PQ2_0）实测：prefill 512 token **267.2 ± 18.4 t/s**，解码 **50.8 ± 4.3 t/s**。
-跑分脚本与口径见 [tools/bench/README.md](tools/bench/README.md)。
+本机（RTX 4090，PQ2_0）实测：prefill **261–292 t/s**，解码 **45–50 t/s**（CUDA Graph 开）。
+完整跑分（两个三元制品各 20 条用例）、测量口径与噪声来源见 [基准测试](docs/基准测试.md)；
+脚本与 suite 定义见 [tools/bench/README.md](tools/bench/README.md)。
 
 ---
 
@@ -173,6 +174,7 @@ nvfp4）会在后面以张量名对不上的形式失败。
 | [把本仓当工具用](docs/uv-工具安装.md) | `uv tool install` 全流程、环境变量、离线安装、排错 |
 | [移植报告](docs/移植报告-ninfer-4090.md) | 判定依据、实测证据、未验证部分 |
 | [权重档案与容量规划](docs/权重档案与容量规划.md) | 制品档案改变了什么、容量查询逐条对照 |
+| [基准测试](docs/基准测试.md) | 完整跑分：口径、两个三元制品的读数、噪声来源、困惑度待测 |
 | [依赖安装](docs/依赖安装-RockyLinux10.md) | Rocky Linux 10 缺失库清单与安装命令 |
 | [改动说明](patches/README-改动说明.md) | 45 个文件的改动清单、与上游的刻意差异 |
 
@@ -189,6 +191,7 @@ nvfp4）会在后面以张量名对不上的形式失败。
 | MTP 投机 | 输出与无投机逐字节一致，接受率 74-77%（draft 4）|
 | 长上下文 | 2685 与 11043 token 的 prompt 全部同摘要；三元 MMA prefill 约为 SIMT 的 4.2-4.4 倍 |
 | 干净检出可复现 | `git clone` v1.2.0 -> 打补丁 -> `diff -r` 无差异；全量重编 726/726 exit 0，`ctest` 84/84 |
+| 基准测试 | 两个三元制品各 20 条用例（panel / prefill / decode / kv / mtp / graph，各 5 次重复）：PQ2_0 prefill **261–292 t/s**、decode **45–50 t/s**；CUDA Graph 关掉后 decode 从 44.7 掉到 22.1 t/s。读数、口径与噪声来源见 [基准测试](docs/基准测试.md) |
 | **`uv tool install` 一条命令** | 现场拉取 v1.2.0 -> 落地 45 文件 -> 自检 20/20 -> 编译 -> 打成 223 MiB wheel -> **临时根整个删除**（`/tmp` 不留文件也不留空目录），全程 **6 分 31 秒**；装好的 `ninfer` 直接答对 `17 * 23` |
 
 ---
